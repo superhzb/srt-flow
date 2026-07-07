@@ -3,17 +3,27 @@
 from .app import create_app
 from .config import TranslationConfig
 from .models import TranslationRequest, TranslationResponse
-from .srt import Segment, format_translated_srt, parse_srt
-from .translator import Translator, translate_srt_text
+from .prompts import (
+    LangConfig,
+    PairConfig,
+    available_languages,
+    load_lang,
+    load_template,
+    make_pair,
+)
+from .translator import Translator, translate_segments
 
 __all__ = [
-    "Segment",
+    "LangConfig",
+    "PairConfig",
     "TranslationConfig",
     "TranslationRequest",
     "TranslationResponse",
     "Translator",
+    "available_languages",
     "create_app",
-    "format_translated_srt",
-    "parse_srt",
-    "translate_srt_text",
+    "load_lang",
+    "load_template",
+    "make_pair",
+    "translate_segments",
 ]

@@ -27,6 +27,10 @@ type _Load = Callable[[str], tuple[object, object]]
 type _MakeSampler = Callable[[float], object]
 
 
+def ensure_model_available(model_path: str) -> None:
+    _load(model_path)
+
+
 def generate_text(
     prompt: str,
     model_path: str,
@@ -35,30 +39,36 @@ def generate_text(
 ) -> str:
     _load(model_path)
 
-    generate = cast(_Generate, _load_symbol("mlx_lm", "generate"))
-    make_sampler = cast(
-        _MakeSampler,
-        _load_symbol("mlx_lm.sample_utils", "make_sampler"),
-    )
+    try:
+        generate = cast(_Generate, _load_symbol("mlx_lm", "generate"))
+        make_sampler = cast(
+            _MakeSampler,
+            _load_symbol("mlx_lm.sample_utils", "make_sampler"),
+        )
 
-    if _tokenizer is None:
-        raise RuntimeError("Tokenizer was not loaded")
+        if _tokenizer is None:
+            raise RuntimeError("Tokenizer was not loaded")
 
-    messages = [{"role": "user", "content": prompt}]
-    formatted = _tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        tokenize=False,
-    )
-    logger.debug("Sending %d chars to MLX model", len(formatted))
-    response = generate(  # pyright: ignore[reportUnknownVariableType]
-        _model,
-        _tokenizer,
-        prompt=formatted,
-        max_tokens=max_tokens,
-        sampler=make_sampler(temperature),
-        verbose=False,
-    )
+        messages = [{"role": "user", "content": prompt}]
+        formatted = _tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        logger.debug("Sending %d chars to MLX model", len(formatted))
+        response = generate(  # pyright: ignore[reportUnknownVariableType]
+            _model,
+            _tokenizer,
+            prompt=formatted,
+            max_tokens=max_tokens,
+            sampler=make_sampler(temperature),
+            verbose=False,
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"MLX generation failed: {exc}") from exc
+
     return str(response)
 
 
@@ -68,17 +78,24 @@ def _load(model_path: str) -> None:
     if _loaded_path == model_path:
         return
 
-    try:
-        load = cast(_Load, _load_symbol("mlx_lm", "load"))
-    except ImportError as exc:
-        raise RuntimeError("Install srt-mlx-worker[mlx] to enable MLX translation") from exc
+    load = cast(_Load, _load_symbol("mlx_lm", "load"))
 
     logger.info("Loading MLX model: %s", model_path)
-    loaded_model, loaded_tokenizer = load(model_path)
+    try:
+        loaded_model, loaded_tokenizer = load(model_path)
+    except Exception as exc:
+        raise RuntimeError(f"Unable to load MLX model {model_path!r}: {exc}") from exc
     _model = loaded_model
     _tokenizer = cast(_Tokenizer, loaded_tokenizer)
     _loaded_path = model_path
 
 
 def _load_symbol(module_name: str, attribute: str) -> object:
-    return getattr(importlib.import_module(module_name), attribute)
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, attribute)
+    except (ImportError, AttributeError) as exc:
+        raise RuntimeError(
+            f"Unable to load MLX dependency {module_name}.{attribute}; "
+            "install a compatible srt-mlx-worker[mlx] environment"
+        ) from exc

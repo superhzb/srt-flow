@@ -1,12 +1,11 @@
 """FastAPI application factory."""
 
-from dataclasses import replace
-
 from fastapi import FastAPI, HTTPException
 
 from .config import TranslationConfig
 from .models import TranslationRequest, TranslationResponse
-from .translator import translate_srt_text
+from .prompts import available_languages
+from .translator import translate_segments
 
 
 def create_app(default_config: TranslationConfig | None = None) -> FastAPI:
@@ -17,6 +16,7 @@ def create_app(default_config: TranslationConfig | None = None) -> FastAPI:
         return _translate(request, config)
 
     app.add_api_route("/health", _health, methods=["GET"])
+    app.add_api_route("/languages", lambda: _languages(config), methods=["GET"])
     app.add_api_route(
         "/translate",
         translate,
@@ -30,16 +30,24 @@ def _health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _languages(config: TranslationConfig) -> dict[str, list[dict[str, str]]]:
+    return {"languages": available_languages(config.languages_path)}
+
+
 def _translate(request: TranslationRequest, config: TranslationConfig) -> TranslationResponse:
     try:
-        translated = translate_srt_text(request.srt, config=_merge_config(config, request))
+        targets, segments = translate_segments(
+            request.source_lang,
+            request.targets,
+            request.segments,
+            config=config,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return TranslationResponse(translated_srt=translated)
-
-
-def _merge_config(config: TranslationConfig, request: TranslationRequest) -> TranslationConfig:
-    overrides = request.model_dump(exclude={"srt"}, exclude_none=True)
-    return replace(config, **overrides)
+    return TranslationResponse(
+        source_lang=request.source_lang,
+        targets=targets,
+        segments=segments,
+    )
