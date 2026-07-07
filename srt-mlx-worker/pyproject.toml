@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "srt-mlx-worker"
+description = "API service for translating SRT subtitles with MLX."
+readme = "README.md"
+authors = [{ name = "Brett" }]
+requires-python = ">=3.12"
+version = "0.1.0"
+dependencies = [
+  "fastapi>=0.116.0",
+  "pydantic>=2.11.0",
+  "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+mlx = [
+  "mlx>=0.18",
+  "mlx-lm>=0.18",
+]
+
+[project.scripts]
+srt-mlx-worker = "srt_mlx_worker.server:main"
+
+[dependency-groups]
+dev = [
+  "build>=1.2.0",
+  "pyright>=1.1.400",
+  "pytest>=8.3.0",
+  "ruff>=0.11.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/srt_mlx_worker"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "B",
+  "UP",
+  "ANN",
+]
+
+[tool.ruff.lint.flake8-annotations]
+suppress-none-returning = true
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
