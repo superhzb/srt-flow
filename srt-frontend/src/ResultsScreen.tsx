@@ -1,56 +1,77 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { JobResult, PrepareResponse } from "./api.ts";
+import { fetchJobOutput, type JobResult } from "./api.ts";
 
 interface Props {
-  fileName: string;
-  prepare: PrepareResponse;
+  jobId: string;
   results: JobResult[];
   onRestart: () => void;
+  onViewJobs: () => void;
 }
 
-export function ResultsScreen({ fileName, prepare, results, onRestart }: Props) {
-  const baseName = fileName.replace(/\.srt$/i, "");
+export function ResultsScreen({ jobId, results, onRestart, onViewJobs }: Props) {
   return (
     <section className="mt-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Translated · {results.length}</h2>
           <p className="text-sm text-slate-600">
-            <span className="font-medium">{fileName}</span> · {prepare.count} cues
+            job <span className="font-mono">{jobId.slice(0, 8)}</span> · outputs saved
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
-        >
-          New translation
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onViewJobs}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+          >
+            View jobs
+          </button>
+          <button
+            type="button"
+            onClick={onRestart}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+          >
+            New translation
+          </button>
+        </div>
       </div>
       <div className="space-y-4">
         {results.map((r) => (
-          <ResultPanel key={r.lang} baseName={baseName} result={r} />
+          <ResultPanel key={r.lang} jobId={jobId} result={r} />
         ))}
       </div>
     </section>
   );
 }
 
-function ResultPanel({ baseName, result }: { baseName: string; result: JobResult }) {
+function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
   const [showSrt, setShowSrt] = useState(false);
+  const [srtText, setSrtText] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  function download() {
-    const blob = new Blob([result.srt], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${baseName}.${result.lang}.srt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
+  // Lazy-load the .srt text only when the user toggles the preview. The
+  // poll response no longer carries it inline (slice-3 wire-shape change).
+  useEffect(() => {
+    if (!showSrt || srtText !== null || loadError) return;
+    let cancelled = false;
+    fetchJobOutput(result.download_url)
+      .then((text) => {
+        if (!cancelled) setSrtText(text);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : "failed to load output");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showSrt, srtText, loadError, result.download_url]);
+
+  // Download is a plain anchor to the same download_url — the browser
+  // streams the .srt attachment directly, no JS blob juggling needed.
+  const baseName = jobId.slice(0, 8);
 
   return (
     <div className="rounded-lg border border-slate-200 overflow-hidden">
@@ -67,22 +88,28 @@ function ResultPanel({ baseName, result }: { baseName: string; result: JobResult
             />
             raw .srt
           </label>
-          <button
-            type="button"
-            onClick={download}
+          <a
+            href={result.download_url}
+            download={`${baseName}.${result.lang}.srt`}
             className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
           >
             Download
-          </button>
+          </a>
         </div>
       </div>
       {showSrt ? (
-        <pre className="bg-slate-900 text-slate-100 p-4 overflow-auto text-xs max-h-96">
-          {result.srt}
-        </pre>
+        loadError ? (
+          <div className="p-4 text-sm text-red-700">Error: {loadError}</div>
+        ) : srtText === null ? (
+          <div className="p-4 text-sm text-slate-500">Loading…</div>
+        ) : (
+          <pre className="bg-slate-900 text-slate-100 p-4 overflow-auto text-xs max-h-96">
+            {srtText}
+          </pre>
+        )
       ) : (
         <div className="p-4 text-sm text-slate-600">
-          {result.srt.split("\n\n").length} cue blocks · toggle raw .srt to preview.
+          output saved · toggle raw .srt to preview.
         </div>
       )}
     </div>

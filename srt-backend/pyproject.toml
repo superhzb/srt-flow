@@ -13,6 +13,8 @@ dependencies = [
   "hanzidentifier>=1.3.0",
   "httpx2>=2.5.0",
   "lingua-language-detector>=2.2.0",
+  "pkg-file-upload",
+  "pkg-job-orch",
   "pkg-srt-services",
   "python-multipart>=0.0.20",
   "uvicorn[standard]>=0.32.0",
@@ -23,10 +25,13 @@ dev = [
   "build>=1.2.0",
   "pyright>=1.1.400",
   "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
   "ruff>=0.11.0",
 ]
 
 [tool.uv.sources]
+pkg-file-upload = { path = "pkg-file-upload" }
+pkg-job-orch = { path = "pkg-job-orch" }
 pkg-srt-services = { path = "pkg-srt-services" }
 
 [tool.hatch.build.targets.wheel]
@@ -34,6 +39,7 @@ packages = ["src/srt_backend"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
@@ -46,6 +52,10 @@ select = ["E", "F", "I", "B", "UP", "ANN"]
 
 [tool.ruff.lint.flake8-annotations]
 suppress-none-returning = true
+
+[tool.ruff.lint.per-file-ignores]
+# Test fakes intentionally use Any for the worker-client signature.
+"tests/**/*.py" = ["ANN401"]
 
 [tool.pyright]
 typeCheckingMode = "strict"

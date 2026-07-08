@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { pollTranslate, type JobResult } from "./api.ts";
+import { pollJob, type JobResult } from "./api.ts";
 
 interface Props {
   fileName: string;
@@ -33,7 +33,7 @@ export function ProcessingScreen({
 
     async function tick() {
       try {
-        const body = await pollTranslate(jobId);
+        const body = await pollJob(jobId);
         if (cancelled || finishedRef.current) return;
         setProgress(body.progress);
         if (body.status === "done" && body.results) {

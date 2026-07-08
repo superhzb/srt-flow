@@ -1,3 +1,105 @@
-"""Public API for pkg_job_orch."""
+"""Public API surface for ``pkg_job_orch``.
 
-__all__: list[str] = []
+Everything app/tests import lives here. Internal modules are private —
+imports must target ``pkg_job_orch.api`` only (AGENTS.md).
+"""
+
+from __future__ import annotations
+
+__all__ = [
+    # db + engine
+    "DEFAULT_DATABASE_URL",
+    "get_engine",
+    "init_schema",
+    "reset_engine",
+    "run_migrations",
+    "session_scope",
+    # models
+    "Job",
+    "User",
+    "tgt_langs_from_csv",
+    "tgt_langs_to_csv",
+    # orchestration
+    "DEV_USER_ID",
+    "DEFAULT_DEV_USER_EMAIL",
+    "EnqueueError",
+    "EnqueueResult",
+    "JobContext",
+    "Notifier",
+    "NullNotifier",
+    "WorkerClientFn",
+    "default_worker_client",
+    "enqueue",
+    "enqueue_pending",
+    "list_pending",
+    "recover_jobs",
+    "seed_dev_user",
+    "worker_loop",
+    # worker client
+    "StreamOutcome",
+    "WorkerStreamError",
+    "build_segments",
+    "stream_translate",
+    # worker registry
+    "DEFAULT_WORKERS",
+    "WorkerInfo",
+    "WorkerResolutionError",
+    "WorkerStatus",
+    "fetch_languages",
+    "probe_workers",
+    "worker_base_url",
+    "workers_env",
+    # router
+    "db_router",
+    "router",
+]
+
+from .db import (
+    DEFAULT_DATABASE_URL,
+    get_engine,
+    init_schema,
+    reset_engine,
+    run_migrations,
+    session_scope,
+)
+from .models import (
+    Job,
+    User,
+    tgt_langs_from_csv,
+    tgt_langs_to_csv,
+)
+from .orchestration import (
+    DEFAULT_DEV_USER_EMAIL,
+    DEV_USER_ID,
+    EnqueueError,
+    EnqueueResult,
+    JobContext,
+    Notifier,
+    NullNotifier,
+    WorkerClientFn,
+    default_worker_client,
+    enqueue,
+    enqueue_pending,
+    list_pending,
+    recover_jobs,
+    seed_dev_user,
+    worker_loop,
+)
+from .routes import router
+from .routes_db import router as db_router
+from .worker_client import (
+    StreamOutcome,
+    WorkerStreamError,
+    build_segments,
+    stream_translate,
+)
+from .workers import (
+    DEFAULT_WORKERS,
+    WorkerInfo,
+    WorkerResolutionError,
+    WorkerStatus,
+    fetch_languages,
+    probe_workers,
+    worker_base_url,
+    workers_env,
+)

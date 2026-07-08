@@ -15,7 +15,7 @@ uv run pyright
 uv run uvicorn srt_backend.app:api --reload --port 5731
 ```
 
-`DEV_AUTH=1` is honored by `pkg-auth` (slice 3); slice 1 has no auth at all.
+`AUTH_MODE=dev` is honored by `pkg-auth` when `ENV=dev`.
 
 ## Layout
 

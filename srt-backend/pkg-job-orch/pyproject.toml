@@ -4,25 +4,43 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pkg-job-orch"
-description = "Internal job orchestration package."
+description = "Internal job orchestration package (Job model + worker_loop + router)."
 readme = "README.md"
 authors = [{ name = "Brett" }]
 requires-python = ">=3.12"
 version = "0.1.0"
+dependencies = [
+  "alembic>=1.13.0",
+  "fastapi>=0.116.0",
+  "httpx2>=2.5.0",
+  "pkg-file-upload",
+  "pkg-srt-services",
+  "sqlmodel>=0.0.22",
+]
 
 [dependency-groups]
 dev = [
   "build>=1.2.0",
   "pyright>=1.1.400",
   "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
   "ruff>=0.11.0",
 ]
+
+[tool.uv.sources]
+pkg-file-upload = { path = "../pkg-file-upload" }
+pkg-srt-services = { path = "../pkg-srt-services" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pkg_job_orch"]
 
+# Migrations ship inside the package directory (src/pkg_job_orch/migrations/)
+# so the default wheel target already bundles env.py, script.py.mako, and
+# versions/*.py. No force-include needed.
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
@@ -43,7 +61,17 @@ select = [
 [tool.ruff.lint.flake8-annotations]
 suppress-none-returning = true
 
+[tool.ruff.lint.per-file-ignores]
+# Migrations + script template are not part of the typed surface.
+"src/pkg_job_orch/migrations/**/*.py" = ["ANN"]
+"src/pkg_job_orch/migrations/**/*.mako" = []
+# Test fakes intentionally use Any for the worker-client signature.
+"tests/**/*.py" = ["ANN401"]
+
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 include = ["src", "tests"]
+exclude = [
+  "src/pkg_job_orch/migrations/script.py.mako",
+]

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
-from srt_backend.workers import (
+from pkg_job_orch.api import (
     WorkerResolutionError,
     worker_base_url,
     workers_env,

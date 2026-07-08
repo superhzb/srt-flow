@@ -47,10 +47,20 @@ Goal: simplest possible working prototype. One Mac, Cloudflare Tunnel, staging +
 ```
 user   (id, google_sub UNIQUE, email, tier[free|paid], created_at)
 job    (id, user_id FK, status[pending|processing|done|failed],
-        input_path, output_path, worker, error, src_lang, tgt_lang,
+        worker, error, src_lang, tgt_langs, progress REAL,
         created_at, finished_at)
 usage  (user_id, month, job_count)   -- free-tier guard; or COUNT(job)
 ```
+
+Notes:
+- **One job = one upload → N targets.** `tgt_langs` is a CSV/JSON list (plural),
+  matching the slice-2 multi-select. No per-target rows.
+- **No path columns.** Artifacts are derived, not stored: input at
+  `{STORAGE_ROOT}/{user_id}/{job_id}/input.srt`, outputs at
+  `output.<lang>.srt`. The row carries no `input_path`/`output_path`.
+- **`google_sub` arrives in slice 4.** The schema above is the north-star. Slice 3's
+  initial Alembic revision creates `user` **without** `google_sub` (one seeded dev user,
+  synthetic id); slice 4 adds the column via migration and fills it from OAuth. See PLAN.md.
 
 ## Request flow
 
@@ -61,8 +71,8 @@ All pkg routers mount under **`/api`** (frontend serves SPA at `/*`; API namespa
 1. GET  /api/auth/google/login  → redirect Google
 2. GET  /api/auth/google/callback → mint JWT cookie, upsert user
 3. GET  /api/languages          → src/tgt lang list (proxy srt-mlx-worker /languages)
-4. POST /api/jobs (multipart srt+src_lang+tgt_lang) → tier guard (402 if over quota)
-                                → Storage.save(input) → INSERT job(pending) → enqueue → 202 {job_id}
+4. POST /api/jobs (JSON {cues, source_lang, targets[], worker}) → tier guard (402 if over quota)
+                                → serialize(cues) → Storage.save(input.srt) → INSERT job(pending) → enqueue → 202 {job_id}
 5. worker loop: claim pending → status=processing
                 → POST srt-mlx-worker /translate (input srt)
                 → Storage.save(output) → status=done → notify
@@ -88,22 +98,22 @@ SPA served same-origin via `StaticFiles(dist/)` so JWT httpOnly cookie needs no 
 Google OAuth loop is slow to iterate against. In **dev only**, skip it.
 
 ```
-DEV_AUTH=1   (only honored when ENV=dev)
+AUTH_MODE=dev   # google | dev  (dev only honored when ENV=dev)
 DEV_USER_EMAIL=dev@local        # upserted on startup
 DEV_USER_TIER=paid              # test paid features without Stripe
 ```
 
-Behavior when `ENV==dev and DEV_AUTH`:
+Behavior when `ENV==dev and AUTH_MODE=dev`:
 - `get_current_user()` returns the seeded dev user directly — no cookie/JWT needed.
 - `GET /api/auth/me` → dev user (never 401) → SPA skips `/login`.
 - `/api/auth/google/*` still work if you want to test real OAuth; bypass just removes the requirement.
 
 **Hard gate (security):**
-- `DEV_AUTH` is ignored unless `ENV=="dev"`. In staging/prod it does nothing even if set.
-- App **refuses to start** if `ENV in {staging,prod}` and `DEV_AUTH` truthy — fail loud, never silently ship an open door.
+- `AUTH_MODE=dev` is ignored unless `ENV=="dev"`.
+- App **refuses to start** if `ENV in {staging,prod}` and `AUTH_MODE != google` — fail loud, never silently ship an open door.
 - No dev user seeded, no bypass path registered, when `ENV!=dev`.
 
-Frontend: nothing special — `/api/auth/me` returns a user, so the session gate passes. Real Google button only exercised when `DEV_AUTH` off.
+Frontend: nothing special — `/api/auth/me` returns a user, so the session gate passes. Real Google button only exercised when `AUTH_MODE=google`.
 
 ## Package contracts (public `api.py` only)
 
@@ -143,8 +153,8 @@ Local files not web-reachable → serve downloads through auth-gated FastAPI rou
 
 ```
 ENV=dev
-DEV_AUTH=1                                     # dev only: skip Google OAuth (ignored/blocked if ENV≠dev)
-DEV_USER_EMAIL=dev@local  DEV_USER_TIER=paid   # seeded dev user when DEV_AUTH on
+AUTH_MODE=dev                                  # google | dev; dev only when ENV=dev
+DEV_USER_EMAIL=dev@local  DEV_USER_TIER=paid   # seeded dev user when AUTH_MODE=dev
 STORAGE_ROOT=./.data/dev/storage              # in-repo dev; prod → ~/srt-storage
 DATABASE_URL=sqlite:///./.data/dev/db.sqlite  # in-repo dev; prod → ~/srt-data
 WORKER_URL=http://localhost:8010              # mlx-worker

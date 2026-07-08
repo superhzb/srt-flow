@@ -1,7 +1,9 @@
 """Command-line entry point for the API server."""
 
 from .app import create_app
+from .config import load_local_env
 
+load_local_env()
 app = create_app()
 
 

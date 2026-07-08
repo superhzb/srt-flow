@@ -1,15 +1,12 @@
-"""Worker registry and HTTP client.
+"""Worker registry + HTTP client helpers.
 
-Workers expose ``/health``, ``/languages``, ``/translate``, and
-``/translate/stream``. This module owns:
+Moved here from ``srt_backend.workers`` (slice 2) so ``pkg-job-orch``
+owns the whole worker surface: registry, health probe, language proxy,
+and the streaming translation client. The HTTP routes for
+``/api/workers`` and ``/api/languages`` stay in the app and call these.
 
-- Parsing ``WORKERS`` env (``id=url,id=url,…``) into immutable ``WorkerInfo``.
-- Resolving a worker id to its base URL (raises if unknown).
-- Probing ``/health`` concurrently to mark each worker ``healthy``.
-- Proxying ``/languages`` verbatim.
-
-The streaming ``POST /translate/stream`` call lives in ``translation.py`` so
-its lifecycle (open client + read lines + close) is contained in one place.
+Env ``WORKERS=id=url,id=url`` (default points at the Makefile's dev
+topology). Parsed at a runtime boundary (each call), never at import.
 """
 
 from __future__ import annotations
@@ -31,7 +28,6 @@ __all__ = [
     "fetch_languages",
 ]
 
-# Default dev topology (matches the Makefile port layout).
 DEFAULT_WORKERS: str = "cloud=http://localhost:5733,mlx=http://localhost:5732"
 
 _HEALTH_TIMEOUT: float = 1.0

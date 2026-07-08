@@ -1,4 +1,9 @@
 // Typed client for the srt-flow backend.
+//
+// Slice 3: jobs are durable. The poll response shape changed:
+//   slice 2: results?: [{ lang, srt }]            // inline text
+//   slice 3: results?: [{ lang, download_url }]   // hit /api/jobs/{id}/download
+// The endpoint prefix also renamed: /api/translate* → /api/jobs*.
 
 export interface Cue {
   index: number;
@@ -32,16 +37,44 @@ export interface LanguageInfo {
 
 export type JobStatus = "pending" | "processing" | "done" | "failed";
 
+// Slice-3 result shape: no inline srt — fetch via download_url.
 export interface JobResult {
   lang: string;
-  srt: string;
+  download_url: string;
 }
 
 export interface JobStatusResponse {
+  id: string;
   status: JobStatus;
   progress: number;
+  worker: string;
+  src_lang: string;
+  tgt_langs: string[];
   results?: JobResult[];
   error?: string;
+}
+
+export interface JobSummary {
+  id: string;
+  status: JobStatus;
+  worker: string;
+  src_lang: string;
+  tgt_langs: string[];
+  progress: number;
+  created_at: string;
+}
+
+export interface TableInfo {
+  name: string;
+  count: number;
+}
+
+export interface TablePage {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
+  page: number;
+  size: number;
 }
 
 // FastAPI HTTPException detail can be a string or a list of field errors;
@@ -101,13 +134,13 @@ export async function getLanguages(worker: string): Promise<LanguageInfo[]> {
   return body.languages;
 }
 
-export async function startTranslate(params: {
+export async function startJob(params: {
   cues: Cue[];
   sourceLang: string;
   targets: string[];
   worker: string;
 }): Promise<{ job_id: string }> {
-  const resp = await fetch("/api/translate", {
+  const resp = await fetch("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -121,8 +154,49 @@ export async function startTranslate(params: {
   return (await resp.json()) as { job_id: string };
 }
 
-export async function pollTranslate(jobId: string): Promise<JobStatusResponse> {
-  const resp = await fetch(`/api/translate/${encodeURIComponent(jobId)}`);
+export async function pollJob(jobId: string): Promise<JobStatusResponse> {
+  const resp = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
   if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
   return (await resp.json()) as JobStatusResponse;
+}
+
+export async function listJobs(): Promise<JobSummary[]> {
+  const resp = await fetch("/api/jobs");
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  const body = (await resp.json()) as { jobs: JobSummary[] };
+  return body.jobs;
+}
+
+export async function listTables(): Promise<TableInfo[]> {
+  const resp = await fetch("/api/db/tables");
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return (await resp.json()) as TableInfo[];
+}
+
+export async function getTableRows(
+  name: string,
+  page: number,
+  size = 20,
+): Promise<TablePage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  });
+  const resp = await fetch(`/api/db/tables/${encodeURIComponent(name)}?${params}`);
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return (await resp.json()) as TablePage;
+}
+
+export async function clearAllData(): Promise<{ cleared: number }> {
+  const resp = await fetch("/api/db/clear", { method: "POST" });
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return (await resp.json()) as { cleared: number };
+}
+
+// Fetch the actual .srt bytes for a target. Used when the user wants to
+// preview or download — the poll response no longer carries the text inline.
+export async function fetchJobOutput(downloadUrl: string): Promise<string> {
+  const resp = await fetch(downloadUrl);
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return await resp.text();
 }

@@ -2,12 +2,14 @@ import { useRef, useState } from "react";
 
 import {
   prepareSrt,
-  startTranslate,
+  startJob,
   type JobResult,
   type PrepareResponse,
 } from "./api.ts";
 import { CuesView } from "./CuesView.tsx";
 import { ConfigureScreen } from "./ConfigureScreen.tsx";
+import { DbScreen } from "./DbScreen.tsx";
+import { JobsScreen } from "./JobsScreen.tsx";
 import { ProcessingScreen } from "./ProcessingScreen.tsx";
 import { ResultsScreen } from "./ResultsScreen.tsx";
 
@@ -40,8 +42,11 @@ type State =
       kind: "results";
       fileName: string;
       prepare: PrepareResponse;
+      jobId: string;
       results: JobResult[];
     };
+
+type Tab = "upload" | "jobs" | "db";
 
 const ACCEPT = ".srt";
 
@@ -54,6 +59,7 @@ function validateFile(file: File): string | null {
 
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
+  const [tab, setTab] = useState<Tab>("upload");
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -88,7 +94,7 @@ export default function App() {
     targets: string[],
   ) {
     if (state.kind !== "configure") return;
-    startTranslate({
+    startJob({
       cues: state.prepare.cues,
       sourceLang,
       targets,
@@ -116,13 +122,14 @@ export default function App() {
       });
   }
 
-  function handleDone(results: JobResult[]) {
+  function handleDone(jobId: string, results: JobResult[]) {
     setState((prev) =>
       prev.kind === "translating"
         ? {
             kind: "results",
             fileName: prev.fileName,
             prepare: prev.prepare,
+            jobId,
             results,
           }
         : prev,
@@ -144,6 +151,7 @@ export default function App() {
 
   function restart() {
     setState({ kind: "idle" });
+    setTab("upload");
   }
 
   // Hide the drop zone once we leave the idle/parsing/parseError upload phase.
@@ -154,15 +162,34 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="max-w-4xl mx-auto px-4 py-10">
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold">srt-flow</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Slice 2 — translate an <code>.srt</code> file into one or more languages.
-          </p>
+      <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
+        <header className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">srt-flow</h1>
+            <p className="text-sm text-slate-600 mt-1">
+              Slice 3 — translate an <code>.srt</code> file. Jobs persist across
+              restarts.
+            </p>
+          </div>
         </header>
 
-        {showUpload && (
+        <nav className="mb-6 flex gap-1 border-b border-slate-200">
+          <TabButton active={tab === "upload"} onClick={() => setTab("upload")}>
+            Upload
+          </TabButton>
+          <TabButton active={tab === "jobs"} onClick={() => setTab("jobs")}>
+            Jobs
+          </TabButton>
+          <TabButton active={tab === "db"} onClick={() => setTab("db")}>
+            DB
+          </TabButton>
+        </nav>
+
+        {tab === "jobs" && <JobsScreen />}
+
+        {tab === "db" && <DbScreen />}
+
+        {tab === "upload" && showUpload && (
           <>
             <div
               onDragOver={(e) => {
@@ -206,7 +233,7 @@ export default function App() {
           </>
         )}
 
-        {state.kind === "configure" && (
+        {tab === "upload" && state.kind === "configure" && (
           <ConfigureScreen
             fileName={state.fileName}
             prepare={state.prepare}
@@ -215,19 +242,19 @@ export default function App() {
           />
         )}
 
-        {state.kind === "translating" && (
+        {tab === "upload" && state.kind === "translating" && (
           <ProcessingScreen
             fileName={state.fileName}
             workerLabel={state.workerLabel}
             sourceLang={state.sourceLang}
             targets={state.targets}
             jobId={state.jobId}
-            onDone={handleDone}
+            onDone={(results) => handleDone(state.jobId, results)}
             onError={handleError}
           />
         )}
 
-        {state.kind === "translateError" && (
+        {tab === "upload" && state.kind === "translateError" && (
           <div className="mt-6 space-y-3">
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               <span className="font-semibold">Translation failed: </span>
@@ -249,16 +276,16 @@ export default function App() {
           </div>
         )}
 
-        {state.kind === "results" && (
+        {tab === "upload" && state.kind === "results" && (
           <ResultsScreen
-            fileName={state.fileName}
-            prepare={state.prepare}
+            jobId={state.jobId}
             results={state.results}
             onRestart={restart}
+            onViewJobs={() => setTab("jobs")}
           />
         )}
 
-        {state.kind === "configure" && (
+        {tab === "upload" && state.kind === "configure" && (
           <details className="mt-8">
             <summary className="cursor-pointer text-sm text-slate-600">
               preview parsed cues
@@ -270,5 +297,29 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`border-b-2 px-4 py-2 text-sm font-medium ${
+        active
+          ? "border-indigo-600 text-indigo-700"
+          : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

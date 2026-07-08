@@ -4,11 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pkg-file-upload"
-description = "Internal file upload package."
+description = "Internal file upload package (Storage iface + LocalStorage)."
 readme = "README.md"
 authors = [{ name = "Brett" }]
 requires-python = ">=3.12"
 version = "0.1.0"
+dependencies = []
 
 [dependency-groups]
 dev = [

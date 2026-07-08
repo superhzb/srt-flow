@@ -1,14 +1,14 @@
-"""Worker and language routes.
+"""Worker + language routes.
 
-``GET /api/workers`` and ``GET /api/languages?worker=``. Mounted under
-``/api`` by the app factory.
+Thin HTTP layer over ``pkg_job_orch`` worker registry. Job-orch owns
+the worker HTTP surface (registry, health probe, language proxy,
+streaming client); these routes just expose it under ``/api``.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
-
-from .workers import (
+from pkg_job_orch.api import (
     WorkerResolutionError,
     fetch_languages,
     probe_workers,
