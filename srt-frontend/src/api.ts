@@ -77,6 +77,11 @@ export interface TablePage {
   size: number;
 }
 
+export interface Me {
+  email: string;
+  tier: "free" | "paid";
+}
+
 // FastAPI HTTPException detail can be a string or a list of field errors;
 // normalise both into a single message.
 function extractDetail(maybe: unknown, fallback: string): string {
@@ -191,6 +196,31 @@ export async function clearAllData(): Promise<{ cleared: number }> {
   const resp = await fetch("/api/db/clear", { method: "POST" });
   if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
   return (await resp.json()) as { cleared: number };
+}
+
+export async function getMe(): Promise<Me | null> {
+  const resp = await fetch("/api/auth/me");
+  if (resp.status === 401) return null;
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return (await resp.json()) as Me;
+}
+
+export async function logout(): Promise<void> {
+  const resp = await fetch("/api/auth/logout", { method: "POST" });
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+}
+
+export function googleLoginUrl(): string {
+  return "/api/auth/google/login";
+}
+
+export async function paidCheck(): Promise<number> {
+  const resp = await fetch("/api/auth/paid-check");
+  if (resp.status === 200 || resp.status === 401 || resp.status === 402) {
+    return resp.status;
+  }
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return resp.status;
 }
 
 // Fetch the actual .srt bytes for a target. Used when the user wants to

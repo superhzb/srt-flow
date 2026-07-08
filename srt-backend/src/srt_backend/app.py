@@ -104,9 +104,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def _create_app() -> FastAPI:
-    from pkg_job_orch.api import db_router, router as jobs_router
+    from pkg_auth.api import router as auth_router
+    from pkg_job_orch.api import db_router
+    from pkg_job_orch.api import router as jobs_router
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
+    app.include_router(auth_router, prefix="/api")
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")

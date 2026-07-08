@@ -13,6 +13,7 @@ dependencies = [
   "hanzidentifier>=1.3.0",
   "httpx2>=2.5.0",
   "lingua-language-detector>=2.2.0",
+  "pkg-auth",
   "pkg-file-upload",
   "pkg-job-orch",
   "pkg-srt-services",
@@ -30,6 +31,7 @@ dev = [
 ]
 
 [tool.uv.sources]
+pkg-auth = { path = "pkg-auth" }
 pkg-file-upload = { path = "pkg-file-upload" }
 pkg-job-orch = { path = "pkg-job-orch" }
 pkg-srt-services = { path = "pkg-srt-services" }

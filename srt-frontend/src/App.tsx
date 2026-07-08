@@ -6,6 +6,7 @@ import {
   type JobResult,
   type PrepareResponse,
 } from "./api.ts";
+import { AuthScreen } from "./AuthScreen.tsx";
 import { CuesView } from "./CuesView.tsx";
 import { ConfigureScreen } from "./ConfigureScreen.tsx";
 import { DbScreen } from "./DbScreen.tsx";
@@ -46,7 +47,7 @@ type State =
       results: JobResult[];
     };
 
-type Tab = "upload" | "jobs" | "db";
+type Tab = "upload" | "jobs" | "db" | "auth";
 
 const ACCEPT = ".srt";
 
@@ -183,11 +184,16 @@ export default function App() {
           <TabButton active={tab === "db"} onClick={() => setTab("db")}>
             DB
           </TabButton>
+          <TabButton active={tab === "auth"} onClick={() => setTab("auth")}>
+            Auth
+          </TabButton>
         </nav>
 
         {tab === "jobs" && <JobsScreen />}
 
         {tab === "db" && <DbScreen />}
+
+        {tab === "auth" && <AuthScreen />}
 
         {tab === "upload" && showUpload && (
           <>

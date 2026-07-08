@@ -1,0 +1,29 @@
+"""Integration tests for pkg-auth mounted in the mono-app."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+def test_auth_routes_are_mounted(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_env: dict[str, str],
+) -> None:
+    del temp_env
+
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("DEV_USER_EMAIL", "dev@example.test")
+    monkeypatch.setenv("DEV_USER_TIER", "paid")
+
+    from srt_backend.app import api
+
+    with TestClient(api) as client:
+        me = client.get("/api/auth/me")
+        paid = client.get("/api/auth/paid-check")
+
+    assert me.status_code == 200
+    assert me.json() == {"email": "dev@example.test", "tier": "paid"}
+    assert paid.status_code == 200
+    assert paid.json() == {"ok": True}

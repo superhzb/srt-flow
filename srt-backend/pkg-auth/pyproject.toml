@@ -9,6 +9,13 @@ readme = "README.md"
 authors = [{ name = "Brett" }]
 requires-python = ">=3.12"
 version = "0.1.0"
+dependencies = [
+  "authlib>=1.6.0",
+  "fastapi>=0.116.0",
+  "httpx>=0.28.0",
+  "pydantic-settings>=2.10.0",
+  "pyjwt>=2.10.0",
+]
 
 [dependency-groups]
 dev = [
