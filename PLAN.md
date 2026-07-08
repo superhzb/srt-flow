@@ -1,13 +1,13 @@
 # srt-flow — Delivery Plan
 
 Ship in thin end-to-end slices. Each slice demoable on its own. Detail lives in per-project docs:
-- `srt-backend/DESIGN.md` — backend architecture, contracts, request flow, dev-auth
+- `srt-backend/DESIGN.md` — backend architecture, contracts, request flow, dev auth
 - `srt-frontend/DESIGN.md` — SPA stack, screens, API usage
 - `srt-mlx-worker/PLAN.md` — translation worker (built)
 
 ## Principle
 
-Vertical slices, not horizontal layers. Never build a package in isolation — build it inside the feature that consumes it, tested against a real caller. `DEV_AUTH=1` removes auth from the critical path so slice 1 needs no OAuth/billing.
+Vertical slices, not horizontal layers. Never build a package in isolation — build it inside the feature that consumes it, tested against a real caller. `AUTH_MODE=dev` removes auth from the critical path so early slices need no OAuth/billing.
 
 ---
 
@@ -109,7 +109,7 @@ Exactly one terminal event (`result` **or** `error`) closes the stream.
   open → `job.status = failed`, `job.error = detail`, **partial results discarded**
   (all-or-nothing; no half-translated `.srt` returned).
 
-### Backend endpoints (all `/api`, `DEV_AUTH` — no real auth)
+### Backend endpoints (all `/api`, `AUTH_MODE=dev` — no real auth)
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
@@ -171,7 +171,7 @@ in-memory job registry is replaced by `pkg-job-orch` in slice 3.
 
 Replace slice-2's in-memory `dict[job_id, Job]` with a durable job lifecycle:
 SQLite `job` table + input/output `.srt` on disk. Jobs survive restart; a jobs list
-shows history. Still `DEV_AUTH=1` — one seeded dev user owns every job. **No OAuth, no
+shows history. Still `AUTH_MODE=dev` — one seeded dev user owns every job. **No OAuth, no
 billing** — auth is bumped to slice 4 so this slice is purely about orchestration.
 
 ### What job orchestration *does*
@@ -181,15 +181,20 @@ request, persist it, run it to completion on a single background worker, and ser
 status / history / artifacts — all surviving a process restart.* Concretely:
 
 1. **Accept + persist** — `enqueue()`: `serialize(cues)` → `Storage.save(input.srt)` →
-   `INSERT job(pending)` → put id on an in-proc queue → `202 {job_id}`. The HTTP request
-   no longer holds job state; the row does.
-2. **Claim + run** — one `worker_loop()` asyncio task (started on app startup) pulls
-   pending jobs **one at a time** (`concurrency=1` — SQLite single writer + mlx
-   single-threaded; queue, don't blast), flips `processing`, streams the slice-2 worker
-   `/translate/stream`, folds each `progress` event into `job.progress`.
+   `INSERT job(pending)` → put id on an in-proc `asyncio.Queue` → `202 {job_id}`. The HTTP
+   request no longer holds job state; the row does. **The queue is volatile** — it holds
+   nothing durable. Durability = the DB row plus the boot-time replay (every `pending` job
+   re-enqueued on startup, see Restart recovery). A lost queue never loses a job.
+2. **Claim + run** — one `worker_loop()` asyncio task (started via the app lifespan, see
+   *Worker lifecycle*) pulls pending jobs **one at a time** (`concurrency=1` — SQLite
+   single writer + mlx single-threaded; queue, don't blast), flips `processing`, streams
+   the slice-2 worker `/translate/stream`, folds each `progress` event into `job.progress`.
 3. **Land results** — on `result`, rebuild one `.srt` per target →
    `Storage.save(output.<lang>.srt)` → `status=done`. On `error`/drop → `status=failed`,
-   partials discarded (slice-2 all-or-nothing policy unchanged).
+   partials discarded (slice-2 all-or-nothing policy unchanged). **No output file exists
+   before this step** — `Storage.save(output.*)` fires only on `result`, so a job killed
+   mid-flight leaves zero `output.<lang>.srt` on disk. Resume is therefore clean; no
+   partial-file glob-and-delete needed.
 4. **Serve** — status poll, jobs list, and (soon-to-be-)auth-gated download route, all
    DB/disk-backed.
 
@@ -219,16 +224,53 @@ job  (id, user_id FK, status, worker, src_lang,
 
 **One job = one upload → N targets** (matches slice-2 multi-select). Outputs keyed by lang
 on disk; the row carries no per-target path (derive `{job_id}/output.<lang>.srt`). Use
-SQLModel/SQLAlchemy over raw `sqlite3` for the typed model.
+SQLModel over raw `sqlite3` for the typed model.
+
+**Dep + engine ownership.** `pkg-job-orch` owns the DB: it declares the `sqlmodel`
+dependency (add to `pkg-job-orch/pyproject.toml` — `srt-backend` picks it up transitively
+via the path dep, so add `pkg-job-orch` to `srt-backend` deps too), defines the `Job`
+model, and constructs the single `Engine`. `pkg-file-upload` never touches the DB — it
+owns disk only. The `user` table lives in job-orch for slice 3 (one dev row); slice 4
+hands `user` ownership to `pkg-auth` when OAuth lands.
+
+**`DATABASE_URL` + bootstrap.** `pkg-job-orch` reads `DATABASE_URL`
+(`sqlite:///./.data/dev/db.sqlite` per DESIGN.md) at a runtime boundary — inside a
+`get_engine()` / config call, **never at import** (AGENTS.md: no import side effects).
+The engine is built once and reused. Schema bootstrap runs in the app lifespan (below),
+not at import.
+
+**Migrations — Alembic from day one.** Slice 3 is one table but slice 4 mutates `user`
+(adds `google_sub`, etc.) and slice 5 adds `usage`. Backfilling migrations after real dev
+data exists is the expensive path. So: wire Alembic now with an initial revision that
+creates the slice-3 schema; the lifespan runs `alembic upgrade head` on startup. (Do **not**
+use `SQLModel.metadata.create_all()` — it cannot ALTER for slice 4, and mixing it with
+Alembic later causes drift.) Add `alembic` to `pkg-job-orch` deps.
+
+### Worker lifecycle (app lifespan)
+
+`app.py` has no lifespan yet — add a FastAPI `lifespan` context that, in order:
+
+1. **startup** — `alembic upgrade head`; seed the dev user if absent (see below);
+   run the recover-scan (reset `processing` → `pending`, re-enqueue all `pending`);
+   `asyncio.create_task(worker_loop())`.
+2. **shutdown** — signal the loop to stop and `await` its cancellation cleanly (no
+   half-written rows; the in-flight job is left `processing` and resumes next boot).
+
+**Dev-user seeding.** Slice 3 has no auth, but `job.user_id` FK needs a target row. The
+lifespan seeds one dev user (`DEV_USER_EMAIL`, synthetic id, `google_sub=NULL`) on startup
+if it does not already exist — idempotent. All slice-3 jobs point at it. Slice 4 replaces
+this seed path with real OAuth upserts.
 
 ### Restart recovery (the reason to persist at all)
 
 On startup any job left in `processing` was interrupted mid-flight. Input `.srt` is on
-disk and translate is idempotent → **reset `processing` → `pending`** and let the loop
-re-run it. (Alternative: mark failed — but resume is friendlier and cheap since input
-persisted. Recommend resume.) Existing `pending` jobs re-enqueue on boot too.
+disk and translate is idempotent → **reset `processing` → `pending`**. The loop then
+resumes it exactly like a fresh job: `Storage.get(input.srt)` → `parse()` → cues →
+re-issue `/translate/stream`. (Alternative: mark failed — but resume is friendlier and
+cheap since input persisted. Recommend resume.) Existing `pending` jobs re-enqueue on boot
+too. This recover-scan runs in the lifespan startup, before the loop is created.
 
-### Endpoints (`/api`, still `DEV_AUTH` — no real auth)
+### Endpoints (`/api`, still `AUTH_MODE=dev` — no real auth)
 
 Rename slice-2 `/api/translate*` → `/api/jobs*` to match north-star DESIGN now (cheap
 while the frontend is small):
@@ -249,6 +291,17 @@ Minimal shift off slice 2: point the poll at `/api/jobs/{id}`; download hits the
 (`<a href>` / fetch-blob) instead of the inline srt string. Add a **Jobs** list screen
 (history table from `GET /api/jobs`) — the first thing persistence buys the user.
 
+**Wire-shape break — do not miss this in the SPA refactor.** The `results` element changes
+shape between slices; the poll response is not backward-compatible:
+
+| | slice 2 (`GET /api/translate/{id}`) | slice 3 (`GET /api/jobs/{id}`) |
+|---|---|---|
+| `results[]` | `{lang, srt}` — full SRT text inline | `{lang, download_url}` — no body |
+
+The SPA must stop reading `results[].srt` and instead fetch/link `results[].download_url`
+(→ `GET /api/jobs/{id}/download?lang=`). Same for the endpoint rename `/translate*` →
+`/jobs*`.
+
 ### Definition of done
 
 Upload → translate → a `job` row lands in SQLite, input/output `.srt` on disk.
@@ -262,17 +315,34 @@ Nothing lives only in RAM. Still no login.
 - `ls .data/dev/storage/<uid>/<jid>/` → `input.srt` + `output.*.srt`.
 - Start a job → `kill` uvicorn mid-run → restart → job reaches `done`.
 
+### Tests
+
+Follows the slice-2 pattern (`tests/test_translate_route.py`, `test_prepare_route.py`, …):
+
+- `srt-backend/tests/test_jobs_route.py` — POST returns `202 {job_id}` + INSERTs a
+  `pending` row; `GET /api/jobs` lists the dev user's jobs; `GET /api/jobs/{id}` shape
+  (`results[].download_url`, not `.srt`); download streams the right file.
+- `srt-backend/tests/test_restart_recovery.py` — seed a `processing` row → run the
+  recover-scan → assert reset to `pending` and re-enqueued; a `done` job is untouched.
+- `pkg-job-orch/tests/test_enqueue.py` — `Job` model round-trips through the engine;
+  `enqueue()` serializes + saves input + inserts pending; dev-user seed is idempotent.
+- `pkg-file-upload/tests/test_local_storage.py` — `LocalStorage` `save`/`get`/`delete`
+  round-trip under the `{root}/{uid}/{jid}/` layout; `url_for` shape.
+
+Use a temp `DATABASE_URL` (`sqlite://` in-memory or tmp file) + temp `STORAGE_ROOT` per
+test; no real `.data/`. Alembic `upgrade head` against the temp DB in a fixture.
+
 ### Deferred to slice 4 (auth)
 
 Real Google OAuth, JWT httpOnly cookie, `get_current_user`, `/api/auth/me` gate, per-user
 job filtering, download auth gate, `/login`. Job-orch already writes `user_id` (the dev
-user) and the download route already exists — slice 4 just flips `DEV_AUTH` off and drops
+user) and the download route already exists — slice 4 switches to `AUTH_MODE=google` and drops
 the auth dependency in. Clean seam.
 
 ## Slice 4 — Real auth
 
-Turn off `DEV_AUTH`. Google OAuth, JWT httpOnly cookie, `get_current_user`,
-`GET /api/auth/me` gate, `/login`. Wire the auth dependency into the slice-3 job routes
+Switch to `AUTH_MODE=google`. Google OAuth, JWT httpOnly cookie, `get_current_user`,
+  `GET /api/auth/me` gate, `/login`. Wire the auth dependency into the slice-3 job routes
 (per-user job filtering + download ownership check). `user` table already exists from
 slice 3 — this slice fills it from real Google identities instead of the seeded dev user.
 
