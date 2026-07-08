@@ -1,0 +1,28 @@
+languages:
+  - lang_code: en
+    lang_name: 英语
+    example: "It takes real strength to make it all the way to the end."
+  - lang_code: es
+    lang_name: 西班牙语
+    example: "Hace falta mucha fuerza para llegar hasta el final."
+  - lang_code: zh
+    lang_name: 简体中文
+    example: "而且要走到最后，真的需要很强"
+  - lang_code: zh-TW
+    lang_name: 繁体中文
+    example: "而且要走到最後，真的需要很強"
+  - lang_code: fr
+    lang_name: 法语
+    example: "Et il faut être vraiment fort pour aller jusqu'au bout."
+  - lang_code: de
+    lang_name: 德语
+    example: "Man braucht wirklich viel Stärke, um es bis zum Ende zu schaffen."
+  - lang_code: pt
+    lang_name: 葡萄牙语
+    example: "É preciso muita força para chegar até o fim."
+  - lang_code: ja
+    lang_name: 日语
+    example: "最後までやり抜くには、本当に強さが必要です。"
+  - lang_code: ko
+    lang_name: 韩语
+    example: "끝까지 해내려면 정말 강해야 합니다."
