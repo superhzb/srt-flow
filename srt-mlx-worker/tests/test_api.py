@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from srt_mlx_worker import api, llm
+from srt_mlx_worker.translator import ProgressCallback
 
 public_names = api.__all__
 
@@ -212,7 +214,108 @@ def test_create_app_exposes_expected_endpoints() -> None:
     app = api.create_app()
 
     assert app.title == "SRT MLX Worker"
-    assert _route_paths(app.routes) >= {"/health", "/languages", "/translate"}
+    assert _route_paths(app.routes) >= {"/health", "/languages", "/translate", "/translate/stream"}
+
+
+def test_translate_stream_emits_progress_then_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    progress_calls: list[api.BatchProgress] = []
+
+    def fake_translate(
+        source_lang: str,
+        targets: list[str],
+        segments: list[dict[str, object]],
+        config: object | None = None,
+        translator: object | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> tuple[list[str], list[dict[str, object]]]:
+        assert source_lang == "fr"
+        assert on_progress is not None
+        cb: ProgressCallback = on_progress
+        for batch_index in range(2):
+            progress_calls.append(
+                api.BatchProgress(
+                    target="zh",
+                    target_index=0,
+                    target_total=1,
+                    batch_index=batch_index,
+                    batch_total=2,
+                )
+            )
+            cb(progress_calls[-1])
+        return ["zh"], [{"id": 1, "fr": "Bonjour", "zh": "你好"}]
+
+    monkeypatch.setattr("srt_mlx_worker.app.translate_segments", fake_translate)
+    client = TestClient(api.create_app(_config(tmp_path)))
+
+    with client.stream(
+        "POST",
+        "/translate/stream",
+        json={
+            "source_lang": "fr",
+            "targets": ["zh"],
+            "segments": [{"id": 1, "fr": "Bonjour"}],
+        },
+    ) as response:
+        assert response.status_code == 200
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    progress = [e for e in events if e["event"] == "progress"]
+    results = [e for e in events if e["event"] == "result"]
+    errors = [e for e in events if e["event"] == "error"]
+    assert errors == []
+    assert len(progress) == 2
+    assert progress[0] == {
+        "event": "progress",
+        "target": "zh",
+        "target_index": 0,
+        "target_total": 1,
+        "batch_index": 0,
+        "batch_total": 2,
+    }
+    assert len(results) == 1
+    assert results[0]["source_lang"] == "fr"
+    assert results[0]["targets"] == ["zh"]
+    assert results[0]["segments"] == [{"id": 1, "fr": "Bonjour", "zh": "你好"}]
+
+
+def test_translate_stream_emits_error_on_translator_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_translate(
+        *_args: object, **_kwargs: object
+    ) -> tuple[list[str], list[dict[str, object]]]:
+        raise ValueError("No requested target is a supported language")
+
+    monkeypatch.setattr("srt_mlx_worker.app.translate_segments", fake_translate)
+    client = TestClient(api.create_app(_config(tmp_path)))
+
+    with client.stream(
+        "POST",
+        "/translate/stream",
+        json={
+            "source_lang": "fr",
+            "targets": ["zh"],
+            "segments": [{"id": 1, "fr": "Bonjour"}],
+        },
+    ) as response:
+        assert response.status_code == 200
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert [e["event"] for e in events] == ["error"]
+    assert "supported language" in events[0]["detail"]
+
+
+def test_translate_stream_rejects_malformed_body(tmp_path: Path) -> None:
+    client = TestClient(api.create_app(_config(tmp_path)))
+
+    response = client.post(
+        "/translate/stream",
+        json={"source_lang": "fr", "targets": [], "segments": [{"id": 1, "fr": "x"}]},
+    )
+
+    assert response.status_code == 422
 
 
 def _route_paths(routes: Sequence[object]) -> set[str]:

@@ -11,11 +11,13 @@ from .prompts import (
     load_template,
     make_pair,
 )
-from .translator import Translator, translate_segments
+from .translator import BatchProgress, ProgressCallback, Translator, translate_segments
 
 __all__ = [
+    "BatchProgress",
     "LangConfig",
     "PairConfig",
+    "ProgressCallback",
     "TranslationConfig",
     "TranslationRequest",
     "TranslationResponse",

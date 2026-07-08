@@ -3,12 +3,20 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pkg-srt-services"
-description = "Internal SRT services package."
-readme = "README.md"
+name = "srt-backend"
+description = "srt-flow FastAPI mono-app."
 authors = [{ name = "Brett" }]
 requires-python = ">=3.12"
 version = "0.1.0"
+dependencies = [
+  "fastapi>=0.116.0",
+  "hanzidentifier>=1.3.0",
+  "httpx2>=2.5.0",
+  "lingua-language-detector>=2.2.0",
+  "pkg-srt-services",
+  "python-multipart>=0.0.20",
+  "uvicorn[standard]>=0.32.0",
+]
 
 [dependency-groups]
 dev = [
@@ -18,8 +26,11 @@ dev = [
   "ruff>=0.11.0",
 ]
 
+[tool.uv.sources]
+pkg-srt-services = { path = "pkg-srt-services" }
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/pkg_srt_services"]
+packages = ["src/srt_backend"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"
@@ -31,14 +42,7 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = [
-  "E",
-  "F",
-  "I",
-  "B",
-  "UP",
-  "ANN",
-]
+select = ["E", "F", "I", "B", "UP", "ANN"]
 
 [tool.ruff.lint.flake8-annotations]
 suppress-none-returning = true

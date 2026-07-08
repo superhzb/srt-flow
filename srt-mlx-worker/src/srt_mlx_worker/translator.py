@@ -2,8 +2,10 @@
 
 import json
 import logging
+import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from .config import TranslationConfig
 from .llm import ensure_model_available, generate_text
@@ -15,12 +17,38 @@ logger = logging.getLogger(__name__)
 Translator = Callable[[str, TranslationConfig], str]
 
 
+@dataclass(frozen=True)
+class BatchProgress:
+    """Progress report for one completed top-level batch within one target.
+
+    Attributes:
+        target: Target language code (tgt_code of the pair).
+        target_index: 0-based index of this target among the supported pairs.
+        target_total: Total number of supported targets being translated.
+        batch_index: 0-based index of the just-completed top-level batch
+            within this target. Sub-splits from binary retry do not advance
+            this counter — one increment per top-level batch only.
+        batch_total: Total top-level batches for this target
+            (= ceil(len(items) / batch_size)).
+    """
+
+    target: str
+    target_index: int
+    target_total: int
+    batch_index: int
+    batch_total: int
+
+
+ProgressCallback = Callable[[BatchProgress], None]
+
+
 def translate_segments(
     source_lang: str,
     targets: list[str],
     segments: list[dict[str, object]],
     config: TranslationConfig | None = None,
     translator: Translator | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> tuple[list[str], list[dict[str, object]]]:
     active_config = config or TranslationConfig()
     active_translator = translator or _generate_with_mlx
@@ -53,8 +81,17 @@ def translate_segments(
     merged = [dict(item) for item in items]
     by_id = {segment["id"]: segment for segment in merged}
 
-    for pair in supported_pairs:
-        translations = _translate_all(items, pair, active_config, active_translator)
+    target_total = len(supported_pairs)
+    for target_index, pair in enumerate(supported_pairs):
+        translations = _translate_all(
+            items,
+            pair,
+            active_config,
+            active_translator,
+            target_index=target_index,
+            target_total=target_total,
+            on_progress=on_progress,
+        )
         for item in translations:
             segment = by_id.get(item["id"])
             translated = item.get(pair.tgt_code)
@@ -69,16 +106,31 @@ def _translate_all(
     pair: PairConfig,
     config: TranslationConfig,
     translator: Translator,
+    *,
+    target_index: int,
+    target_total: int,
+    on_progress: ProgressCallback | None = None,
 ) -> list[TranslationItem]:
     translations: list[TranslationItem] = []
     template = load_template(config.template_path)
+    batch_total = max(1, math.ceil(len(items) / config.batch_size))
 
-    for start in range(0, len(items), config.batch_size):
+    for batch_index, start in enumerate(range(0, len(items), config.batch_size)):
         batch = items[start : start + config.batch_size]
         context = items[max(0, start - config.context_window) : start]
         translations.extend(
             _translate_with_split(batch, context, pair, config, translator, template)
         )
+        if on_progress is not None:
+            on_progress(
+                BatchProgress(
+                    target=pair.tgt_code,
+                    target_index=target_index,
+                    target_total=target_total,
+                    batch_index=batch_index,
+                    batch_total=batch_total,
+                )
+            )
 
     return translations
 
