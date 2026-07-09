@@ -44,7 +44,6 @@ def test_processing_job_resumes_after_restart(
     monkeypatch.setenv("WORKERS", "mlx=http://localhost:5732")
     try:
         from fastapi.testclient import TestClient
-
         from srt_backend.app import api
 
         # Session 1: enqueue a job that hangs in processing forever.
@@ -120,7 +119,6 @@ def test_done_job_survives_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WORKERS", "mlx=http://localhost:5732")
     try:
         from fastapi.testclient import TestClient
-
         from srt_backend.app import api
 
         class _OkClient:

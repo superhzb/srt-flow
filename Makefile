@@ -43,10 +43,10 @@ frontend:
 	cd srt-frontend && npm run dev
 
 worker:
-	cd srt-mlx-worker && WORKER_PORT=5732 uv run uvicorn srt_mlx_worker.server:app --reload --port 5732
+	cd srt-mlx-worker && WORKER_PORT=5732 uv run --extra mlx uvicorn srt_mlx_worker.server:app --port 5732
 
 cloud-worker:
-	cd srt-cloud-worker && WORKER_PORT=5733 uv run uvicorn srt_cloud_worker.server:app --reload --port 5733
+	cd srt-cloud-worker && WORKER_PORT=5733 uv run uvicorn srt_cloud_worker.server:app --port 5733
 
 install:
 	cd srt-backend && uv sync

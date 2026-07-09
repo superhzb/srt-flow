@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import httpx2
+import httpx
 
 __all__ = ["StreamOutcome", "WorkerStreamError", "build_segments", "stream_translate"]
 
@@ -77,7 +77,7 @@ async def stream_translate(
     seen_targets: set[int] = set()
 
     try:
-        async with httpx2.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST", f"{worker_base_url}/translate/stream", json=body
             ) as resp:
@@ -129,7 +129,7 @@ async def stream_translate(
                     )
     except WorkerStreamError:
         raise
-    except (httpx2.HTTPError, OSError) as exc:
+    except (httpx.HTTPError, OSError) as exc:
         raise WorkerStreamError(f"connection error: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 — wrap JSON/network oddities
         raise WorkerStreamError(f"stream failed: {exc}") from exc
@@ -138,7 +138,7 @@ async def stream_translate(
     raise WorkerStreamError("stream_translate fell through unexpectedly")
 
 
-async def _safe_text(resp: httpx2.Response) -> str:
+async def _safe_text(resp: httpx.Response) -> str:
     try:
         return (await resp.aread()).decode("utf-8", errors="replace")[:200]
     except Exception:  # noqa: BLE001

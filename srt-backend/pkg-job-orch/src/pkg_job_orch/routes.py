@@ -13,14 +13,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pkg_srt_services.api import Cue
+from pkg_srt_services.api import Cue, dict_to_cue
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import col, select
 
 from .db import session_scope
 from .models import Job, tgt_langs_from_csv
 from .orchestration import EnqueueError, enqueue
-from .workers import WorkerResolutionError, worker_base_url
+from .workers import WorkerResolutionError
 
 __all__ = ["router"]
 
@@ -53,10 +53,8 @@ async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]
             )
             ctx.queue.put_nowait(result.job_id)
     except EnqueueError as exc:
-        # Unknown worker → 404; bad cues/targets → 400.
-        if isinstance(exc.__cause__, WorkerResolutionError) or "unknown worker" in str(
-            exc
-        ).lower():
+        # Unknown worker (typed cause) → 404; bad cues/targets → 400.
+        if isinstance(exc.__cause__, WorkerResolutionError):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
             ) from exc
@@ -154,36 +152,14 @@ async def download_job(
     )
 
 
-def _dict_to_cue(d: dict[str, Any]) -> Cue:
-    try:
-        return Cue(
-            index=int(d["index"]),  # type: ignore[arg-type]
-            start=str(d["start"]),
-            end=str(d["end"]),
-            text=str(d["text"]),
-        )
-    except KeyError as exc:
-        raise ValueError(f"cue missing key {exc}") from exc
-
-
 def _dict_to_cues(items: list[dict[str, Any]]) -> list[Cue]:
     out: list[Cue] = []
     for d in items:
         try:
-            out.append(_dict_to_cue(d))
+            out.append(dict_to_cue(d))
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"invalid cue: {exc}",
             ) from exc
     return out
-
-
-# Kept for tests / callers that want to validate a worker id without enqueuing.
-def resolve_worker(worker_id: str) -> str:
-    try:
-        return worker_base_url(worker_id)
-    except WorkerResolutionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc

@@ -12,15 +12,14 @@ same Alembic migrations.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, create_engine
 
-from .models import Job, User
+from .config import DEFAULT_DATABASE_URL, load_settings
 
 __all__ = [
     "DEFAULT_DATABASE_URL",
@@ -31,13 +30,11 @@ __all__ = [
     "init_schema",  # test-only shortcut
 ]
 
-DEFAULT_DATABASE_URL = "sqlite:///./.data/dev/db.sqlite"
-
 _engine: Engine | None = None
 
 
 def _resolve_url(database_url: str | None) -> str:
-    return database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    return database_url or load_settings().database_url
 
 
 def get_engine(database_url: str | None = None) -> Engine:
@@ -115,14 +112,3 @@ def init_schema(database_url: str | None = None) -> None:
 
     engine = get_engine(database_url)
     SQLModel.metadata.create_all(engine)
-
-
-def count_jobs_by_status(session: Session, status: str) -> int:
-    """Helper for tests / diagnostics."""
-    stmt = select(Job).where(Job.status == status)
-    return len(session.exec(stmt).all())
-
-
-def get_user_by_email(session: Session, email: str) -> User | None:
-    stmt = select(User).where(User.email == email)
-    return session.exec(stmt).first()

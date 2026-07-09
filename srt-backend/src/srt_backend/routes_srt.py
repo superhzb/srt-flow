@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from pkg_srt_services.api import Cue, ParseError, parse
+from pkg_srt_services.api import Cue, ParseError, cue_to_dict, parse
 
 from .detection import detect
 
@@ -14,10 +13,6 @@ router = APIRouter(prefix="/srt", tags=["srt"])
 
 _MAX_BYTES = 4 * 1024 * 1024  # 4 MiB; slice 1 is sync, keep payloads bounded.
 RequiredFile = Annotated[UploadFile, File()]
-
-
-def _cue_to_dict(cue: Cue) -> dict[str, str | int]:
-    return asdict(cue)
 
 
 async def _decode_srt(file: UploadFile) -> str:
@@ -48,6 +43,16 @@ async def _decode_srt(file: UploadFile) -> str:
         ) from exc
 
 
+def _parse_or_400(payload: str) -> list[Cue]:
+    """Parse SRT, mapping ``ParseError`` to a single 400 site."""
+    try:
+        return parse(payload)
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
 @router.post("/parse", status_code=status.HTTP_200_OK)
 async def parse_srt(file: RequiredFile) -> dict[str, object]:
     """Parse an uploaded `.srt` file into cues.
@@ -63,15 +68,8 @@ async def parse_srt(file: RequiredFile) -> dict[str, object]:
             unparseable SRT.
     """
     payload = await _decode_srt(file)
-
-    try:
-        cues = parse(payload)
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-
-    return {"cues": [_cue_to_dict(c) for c in cues], "count": len(cues)}
+    cues = _parse_or_400(payload)
+    return {"cues": [cue_to_dict(c) for c in cues], "count": len(cues)}
 
 
 @router.post("/prepare", status_code=status.HTTP_200_OK)
@@ -84,17 +82,10 @@ async def prepare_srt(file: RequiredFile) -> dict[str, object]:
     dropdown unselected for the user to choose.
     """
     payload = await _decode_srt(file)
-
-    try:
-        cues = parse(payload)
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-
+    cues = _parse_or_400(payload)
     detection = detect(cues)
     return {
-        "cues": [_cue_to_dict(c) for c in cues],
+        "cues": [cue_to_dict(c) for c in cues],
         "count": len(cues),
         "detected_lang": detection.lang,
         "confidence": detection.confidence,

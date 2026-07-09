@@ -17,7 +17,14 @@ from typing import Any
 
 from sqlmodel import Field, SQLModel
 
-__all__ = ["Job", "JobStatus", "User", "tgt_langs_to_csv", "tgt_langs_from_csv"]
+__all__ = [
+    "Job",
+    "JobStatus",
+    "ProcessedEvent",
+    "User",
+    "tgt_langs_to_csv",
+    "tgt_langs_from_csv",
+]
 
 JobStatus = str  # Literal["pending", "processing", "done", "failed"] — free str for SQLModel
 
@@ -43,12 +50,24 @@ def tgt_langs_from_csv(value: str | None) -> list[str]:
 
 
 class User(SQLModel, table=True):
-    """Slice-3 user: one seeded dev row. Filled from Google in slice 4."""
+    """Canonical durable user row shared by auth, billing, and job orchestration."""
 
     id: str = Field(primary_key=True)
     email: str
     tier: str = Field(default="free")
-    # google_sub arrives slice 4 — do not add the column here yet.
+    google_sub: str | None = Field(default=None, unique=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ProcessedEvent(SQLModel, table=True):
+    """Stripe webhook event idempotency ledger."""
+
+    __tablename__: Any = "processed_events"
+
+    event_id: str = Field(primary_key=True)
+    session_id: str
+    user_id: str = Field(foreign_key="user.id", index=True)
+    paid_at: str
     created_at: datetime = Field(default_factory=_utcnow)
 
 

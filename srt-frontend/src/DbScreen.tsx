@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   clearAllData,
+  errMessage,
   getTableRows,
   listTables,
   type TableInfo,
   type TablePage,
 } from "./api.ts";
+import { ErrorBanner, RefreshButton } from "./components.tsx";
 
 const PAGE_SIZE = 20;
 
@@ -17,22 +19,12 @@ export function DbScreen() {
   const [error, setError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
 
-  function loadTables() {
-    setError(null);
-    listTables()
-      .then((nextTables) => {
-        setTables(nextTables);
-        nextTables.forEach((table) => {
-          const page = pageByTable[table.name] ?? 0;
-          void loadPage(table.name, page);
-        });
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "failed to load tables");
-      });
-  }
+  // Latest-ref so loadTables is stable (no state in its closure) and the
+  // mount effect can depend on it without re-running or going stale (#24).
+  const pageByTableRef = useRef(pageByTable);
+  pageByTableRef.current = pageByTable;
 
-  function loadPage(name: string, page: number) {
+  const loadPage = useCallback((name: string, page: number) => {
     setError(null);
     getTableRows(name, page, PAGE_SIZE)
       .then((body) => {
@@ -40,12 +32,28 @@ export function DbScreen() {
         setPageByTable((prev) => ({ ...prev, [name]: page }));
       })
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "failed to load table rows");
+        setError(errMessage(e, "failed to load table rows"));
       });
-  }
+  }, []);
+
+  const loadTables = useCallback(() => {
+    setError(null);
+    listTables()
+      .then((nextTables) => {
+        setTables(nextTables);
+        for (const table of nextTables) {
+          const page = pageByTableRef.current[table.name] ?? 0;
+          void loadPage(table.name, page);
+        }
+      })
+      .catch((e: unknown) => {
+        setError(errMessage(e, "failed to load tables"));
+      });
+  }, [loadPage]);
 
   async function handleClear() {
-    if (!window.confirm("Clear all database rows and re-seed the dev user?")) return;
+    if (!window.confirm("Clear all database rows and re-seed the dev user?"))
+      return;
     setClearing(true);
     setError(null);
     try {
@@ -54,7 +62,7 @@ export function DbScreen() {
       setPages({});
       loadTables();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to clear data");
+      setError(errMessage(e, "failed to clear data"));
     } finally {
       setClearing(false);
     }
@@ -62,7 +70,7 @@ export function DbScreen() {
 
   useEffect(() => {
     loadTables();
-  }, []);
+  }, [loadTables]);
 
   return (
     <section className="mt-6 space-y-5">
@@ -72,13 +80,7 @@ export function DbScreen() {
           <p className="text-sm text-slate-600">Raw rows for development.</p>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={loadTables}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
-          >
-            Refresh
-          </button>
+          <RefreshButton onClick={loadTables} />
           <button
             type="button"
             onClick={handleClear}
@@ -90,11 +92,7 @@ export function DbScreen() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {tables === null && !error && (
         <p className="text-sm text-slate-600">Loading...</p>
@@ -178,7 +176,10 @@ function TableSection({
             </thead>
             <tbody>
               {page.rows.map((row, index) => (
-                <tr key={String(row.id ?? index)} className="border-t border-slate-100">
+                <tr
+                  key={String(row.id ?? index)}
+                  className="border-t border-slate-100"
+                >
                   {page.columns.map((column) => (
                     <td
                       key={column}

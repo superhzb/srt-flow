@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import queue as queue_mod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from .config import TranslationConfig
 from .models import TranslationRequest, TranslationResponse
 from .prompts import available_languages
-from .translator import BatchProgress, translate_segments
+from .translator import BatchProgress, LLMBackend, translate_segments
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +21,36 @@ _PROGRESS_EVENT = "progress"
 _RESULT_EVENT = "result"
 _ERROR_EVENT = "error"
 
+TranslateFunc = Callable[
+    [
+        str,
+        list[str],
+        list[dict[str, object]],
+        TranslationConfig | None,
+        None,
+        Callable[[BatchProgress], None] | None,
+        LLMBackend | None,
+    ],
+    tuple[list[str], list[dict[str, object]]],
+]
 
-def create_app(default_config: TranslationConfig | None = None) -> FastAPI:
+
+def create_app(
+    default_config: TranslationConfig | None = None,
+    *,
+    backend: LLMBackend,
+    title: str,
+    translate_func: TranslateFunc | None = None,
+) -> FastAPI:
     config = default_config or TranslationConfig()
-    app = FastAPI(title="SRT Cloud Worker", version="0.1.0")
+    app = FastAPI(title=title, version="0.1.0")
+    active_translate = translate_func or translate_segments
 
     def translate(request: TranslationRequest) -> TranslationResponse:
-        return _translate(request, config)
+        return _translate(request, config, backend, active_translate)
 
     async def translate_stream(request: TranslationRequest) -> StreamingResponse:
-        return await _translate_stream(request, config)
+        return await _translate_stream(request, config, backend, active_translate)
 
     app.add_api_route("/health", _health, methods=["GET"])
     app.add_api_route("/languages", lambda: _languages(config), methods=["GET"])
@@ -57,13 +77,21 @@ def _languages(config: TranslationConfig) -> dict[str, list[dict[str, str]]]:
     return {"languages": available_languages(config.languages_path)}
 
 
-def _translate(request: TranslationRequest, config: TranslationConfig) -> TranslationResponse:
+def _translate(
+    request: TranslationRequest,
+    config: TranslationConfig,
+    backend: LLMBackend,
+    translate_func: TranslateFunc,
+) -> TranslationResponse:
     try:
-        targets, segments = translate_segments(
+        targets, segments = translate_func(
             request.source_lang,
             request.targets,
             request.segments,
-            config=config,
+            config,
+            None,
+            None,
+            backend,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -77,14 +105,12 @@ def _translate(request: TranslationRequest, config: TranslationConfig) -> Transl
 
 
 async def _translate_stream(
-    request: TranslationRequest, config: TranslationConfig
+    request: TranslationRequest,
+    config: TranslationConfig,
+    backend: LLMBackend,
+    translate_func: TranslateFunc,
 ) -> StreamingResponse:
-    """Stream translation as NDJSON.
-
-    Emits one ``progress`` event per top-level batch, then a terminal
-    ``result`` (or ``error``) event. Exactly one terminal event closes the
-    stream.
-    """
+    """Stream translation as NDJSON."""
 
     async def gen() -> AsyncIterator[bytes]:
         q: queue_mod.Queue[dict[str, Any] | None] = queue_mod.Queue()
@@ -104,14 +130,16 @@ async def _translate_stream(
 
             try:
                 try:
-                    targets, segments = translate_segments(
+                    targets, segments = translate_func(
                         request.source_lang,
                         request.targets,
                         request.segments,
-                        config=config,
-                        on_progress=on_progress,
+                        config,
+                        None,
+                        on_progress,
+                        backend,
                     )
-                except Exception as exc:  # noqa: BLE001 — surface any failure to stream
+                except Exception as exc:  # noqa: BLE001
                     logger.warning("translate/stream failed: %s", exc)
                     q.put({"event": _ERROR_EVENT, "detail": str(exc)})
                     return

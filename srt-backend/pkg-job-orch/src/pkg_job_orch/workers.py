@@ -12,10 +12,11 @@ topology). Parsed at a runtime boundary (each call), never at import.
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import dataclass
 
-import httpx2
+import httpx
+
+from .config import DEFAULT_WORKERS, load_settings
 
 __all__ = [
     "DEFAULT_WORKERS",
@@ -27,8 +28,6 @@ __all__ = [
     "probe_workers",
     "fetch_languages",
 ]
-
-DEFAULT_WORKERS: str = "cloud=http://localhost:5733,mlx=http://localhost:5732"
 
 _HEALTH_TIMEOUT: float = 1.0
 _PROXY_TIMEOUT: float = 5.0
@@ -67,7 +66,7 @@ def workers_env(raw: str | None = None) -> list[WorkerInfo]:
     Format: ``id1=url1,id2=url2``. Whitespace around tokens is stripped.
     Empty entries are skipped. Order is preserved (deterministic UI list).
     """
-    text = raw if raw is not None else os.environ.get("WORKERS", DEFAULT_WORKERS)
+    text = raw if raw is not None else load_settings().workers
     out: list[WorkerInfo] = []
     for token in text.split(","):
         token = token.strip()
@@ -105,10 +104,10 @@ async def probe_workers(infos: list[WorkerInfo]) -> list[WorkerStatus]:
 
     async def _one(info: WorkerInfo) -> WorkerStatus:
         try:
-            async with httpx2.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
                 resp = await client.get(f"{info.base_url}/health")
                 ok = resp.status_code == 200
-        except (httpx2.HTTPError, OSError):
+        except (httpx.HTTPError, OSError):
             ok = False
         return WorkerStatus(id=info.id, label=info.label, healthy=ok)
 
@@ -117,7 +116,7 @@ async def probe_workers(infos: list[WorkerInfo]) -> list[WorkerStatus]:
 
 async def fetch_languages(base_url: str) -> dict[str, object]:
     """Proxy ``GET {base_url}/languages`` and return its JSON verbatim."""
-    async with httpx2.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
         resp = await client.get(f"{base_url}/languages")
         resp.raise_for_status()
         return resp.json()

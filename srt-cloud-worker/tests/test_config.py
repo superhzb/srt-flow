@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 from srt_cloud_worker.config import load_local_env
 
 

@@ -12,9 +12,10 @@ format round-trips byte-for-byte through `serialize(parse(s))`.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
-__all__ = ["Cue", "ParseError", "parse", "serialize"]
+__all__ = ["Cue", "ParseError", "cue_to_dict", "dict_to_cue", "parse", "serialize"]
 
 _TIMESTAMP = r"\d{1,2}:\d{2}:\d{2}[,.]\d{3}"
 _TIMESPAN = re.compile(rf"^\s*({_TIMESTAMP})\s*-->\s*({_TIMESTAMP})\s*$")
@@ -92,6 +93,33 @@ def _parse_block(block: str) -> Cue:
         raise ParseError(f"cue {index} has empty text")
 
     return Cue(index=index, start=start, end=end, text=body)
+
+
+def cue_to_dict(cue: Cue) -> dict[str, int | str]:
+    """Serialize a cue to the JSON wire shape ``{index, start, end, text}``."""
+    return {"index": cue.index, "start": cue.start, "end": cue.end, "text": cue.text}
+
+
+def dict_to_cue(d: Mapping[str, object]) -> Cue:
+    """Build a cue from the JSON wire shape.
+
+    Inverse of :func:`cue_to_dict`. Raises ``ValueError`` if a required key is
+    missing so route handlers can map it to a 400 in one place.
+    """
+    try:
+        index_value = d["index"]
+        start_value = d["start"]
+        end_value = d["end"]
+        text_value = d["text"]
+    except KeyError as exc:
+        raise ValueError(f"cue missing key {exc}") from exc
+    if not isinstance(index_value, int) or isinstance(index_value, bool):
+        raise ValueError(f"cue index must be an int, got {index_value!r}")
+    if not (
+        isinstance(start_value, str) and isinstance(end_value, str) and isinstance(text_value, str)
+    ):
+        raise ValueError("cue start/end/text must be strings")
+    return Cue(index=index_value, start=start_value, end=end_value, text=text_value)
 
 
 def serialize(cues: list[Cue]) -> str:

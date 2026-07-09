@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Ruff config lives at the repo root (pyproject.toml [tool.ruff]) and is
+      # discovered upward from every package, so a single run covers all of them.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uvx ruff check .
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: srt-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras
+      - run: uv run pyright
+      - run: uv run pytest -q
+
+  pkg-translator:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pkg-translator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync
+      - run: uv run pyright
+      - run: uv run pytest -q
+
+  cloud-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: srt-cloud-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync
+      - run: uv run pyright
+      # e2e tests hit a live DeepSeek API; run them only behind a secret.
+      - run: uv run pytest -q -m "not e2e"
+
+  mlx-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: srt-mlx-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      # Sync WITHOUT the [mlx] extra: mlx/mlx-lm are Apple-silicon only and
+      # cannot install on the Linux CI runner. Non-e2e tests don't import them.
+      - run: uv sync
+      - run: uv run pyright
+      - run: uv run pytest -q -m "not e2e"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: srt-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: srt-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build

@@ -27,26 +27,26 @@ Dev: Vite dev server :5173 with proxy `/api → :8001` (or backend port). Prod: 
 
 ## Screens
 
-| Route | Purpose | Calls |
-|---|---|---|
-| `/login` | Google button | redirect → `GET /api/auth/google/login` |
-| `/` (jobs) | job list, status, upload entry | `GET /api/jobs`, poll `GET /api/jobs/{id}` |
-| `/upload` | drop SRT + pick src/tgt lang + submit | `GET /api/languages`, `POST /api/jobs` |
-| `/jobs/:id` | detail, live status, download | `GET /api/jobs/{id}`, `GET /api/jobs/{id}/download` |
-| `/billing` | tier badge, upgrade | `POST /api/billing/checkout` |
+| Route       | Purpose                               | Calls                                               |
+| ----------- | ------------------------------------- | --------------------------------------------------- |
+| `/login`    | Google button                         | redirect → `GET /api/auth/google/login`             |
+| `/` (jobs)  | job list, status, upload entry        | `GET /api/jobs`, poll `GET /api/jobs/{id}`          |
+| `/upload`   | drop SRT + pick src/tgt lang + submit | `GET /api/languages`, `POST /api/jobs`              |
+| `/jobs/:id` | detail, live status, download         | `GET /api/jobs/{id}`, `GET /api/jobs/{id}/download` |
+| `/billing`  | tier badge, upgrade                   | `POST /api/billing/checkout`                        |
 
 ## API contract used (from srt-backend DESIGN)
 
-| Method | Path | Frontend use |
-|---|---|---|
-| GET | `/api/auth/me` *(new)* | bootstrap session; 401 → /login |
-| GET | `/api/auth/google/login` | full-page redirect |
-| GET | `/api/languages` | src/tgt dropdowns (proxy worker `/languages`) |
-| POST | `/api/jobs` (multipart srt + src_lang + tgt_lang) | upload → `{job_id}` |
-| GET | `/api/jobs` *(new, list)* | jobs table |
-| GET | `/api/jobs/{id}` | status poll |
-| GET | `/api/jobs/{id}/download` | download output.srt (anchor href) |
-| POST | `/api/billing/checkout` | → Stripe link, redirect |
+| Method | Path                                              | Frontend use                                  |
+| ------ | ------------------------------------------------- | --------------------------------------------- |
+| GET    | `/api/auth/me` _(new)_                            | bootstrap session; 401 → /login               |
+| GET    | `/api/auth/google/login`                          | full-page redirect                            |
+| GET    | `/api/languages`                                  | src/tgt dropdowns (proxy worker `/languages`) |
+| POST   | `/api/jobs` (multipart srt + src_lang + tgt_lang) | upload → `{job_id}`                           |
+| GET    | `/api/jobs` _(new, list)_                         | jobs table                                    |
+| GET    | `/api/jobs/{id}`                                  | status poll                                   |
+| GET    | `/api/jobs/{id}/download`                         | download output.srt (anchor href)             |
+| POST   | `/api/billing/checkout`                           | → Stripe link, redirect                       |
 
 > **Backend asks (2)**: `GET /api/jobs` list endpoint + `GET /api/auth/me`. DESIGN has neither; both needed by UI.
 

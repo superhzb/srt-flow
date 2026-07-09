@@ -15,24 +15,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pytest
+from srt_cloud_worker.config import TranslationConfig, load_local_env
 
-from srt_cloud_worker.config import TranslationConfig
-
-
-def _load_local_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.removeprefix("export ").strip()
-        value = value.strip().strip("'\"")
-        os.environ.setdefault(key, value)
-
-
-_load_local_dotenv(Path(__file__).parents[1] / ".env")
+load_local_env(Path(__file__).parents[1] / ".env")
 
 REPORT_PATH = Path(__file__).parent / "reports" / "srt_cloud_worker_e2e_report.md"
 REQUEST_TIMEOUT_SECONDS = float(os.environ.get("SRT_CLOUD_E2E_TIMEOUT", "300"))

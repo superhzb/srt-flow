@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  errMessage,
   prepareSrt,
   startJob,
   type JobResult,
@@ -11,6 +12,7 @@ import { BillingScreen } from "./BillingScreen.tsx";
 import { CuesView } from "./CuesView.tsx";
 import { ConfigureScreen } from "./ConfigureScreen.tsx";
 import { DbScreen } from "./DbScreen.tsx";
+import { ErrorBanner } from "./components.tsx";
 import { JobsScreen } from "./JobsScreen.tsx";
 import { ProcessingScreen } from "./ProcessingScreen.tsx";
 import { ResultsScreen } from "./ResultsScreen.tsx";
@@ -50,21 +52,12 @@ type State =
 
 type Tab = "upload" | "jobs" | "db" | "auth" | "billing";
 
-const ACCEPT = ".srt";
-
-function validateFile(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".srt")) return "file must have a .srt extension";
-  if (file.size === 0) return "file is empty";
-  if (file.size > 4 * 1024 * 1024) return "file exceeds 4 MiB limit";
-  return null;
-}
-
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [tab, setTab] = useState<Tab>("upload");
-  const [checkoutStatus, setCheckoutStatus] = useState<"success" | "cancel" | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [checkoutStatus, setCheckoutStatus] = useState<
+    "success" | "cancel" | null
+  >(null);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -74,15 +67,14 @@ export default function App() {
     setTab("billing");
     setCheckoutStatus(checkout);
     url.searchParams.delete("checkout");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      {},
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
   }, []);
 
   async function submit(file: File) {
-    const err = validateFile(file);
-    if (err) {
-      setState({ kind: "parseError", message: err });
-      return;
-    }
     setState({ kind: "parsing", fileName: file.name });
     try {
       const prepare = await prepareSrt(file);
@@ -90,20 +82,14 @@ export default function App() {
     } catch (e) {
       setState({
         kind: "parseError",
-        message: e instanceof Error ? e.message : "request failed",
+        message: errMessage(e, "request failed"),
       });
     }
   }
 
-  function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) void submit(file);
-  }
-
   function handleProcess(
     workerId: string,
+    workerLabel: string,
     sourceLang: string,
     targets: string[],
   ) {
@@ -120,7 +106,7 @@ export default function App() {
           fileName: state.fileName,
           prepare: state.prepare,
           workerId,
-          workerLabel: workerId,
+          workerLabel,
           sourceLang,
           targets,
           jobId: job_id,
@@ -131,7 +117,7 @@ export default function App() {
           kind: "translateError",
           fileName: state.fileName,
           prepare: state.prepare,
-          message: e instanceof Error ? e.message : "failed to start translation",
+          message: errMessage(e, "failed to start translation"),
         });
       });
   }
@@ -168,8 +154,7 @@ export default function App() {
     setTab("upload");
   }
 
-  // Hide the drop zone once we leave the idle/parsing/parseError upload phase.
-  const showUpload =
+  const inUploadPhase =
     state.kind === "idle" ||
     state.kind === "parsing" ||
     state.kind === "parseError";
@@ -200,7 +185,10 @@ export default function App() {
           <TabButton active={tab === "auth"} onClick={() => setTab("auth")}>
             Auth
           </TabButton>
-          <TabButton active={tab === "billing"} onClick={() => setTab("billing")}>
+          <TabButton
+            active={tab === "billing"}
+            onClick={() => setTab("billing")}
+          >
             Billing
           </TabButton>
         </nav>
@@ -218,48 +206,13 @@ export default function App() {
           />
         )}
 
-        {tab === "upload" && showUpload && (
-          <>
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-              onClick={() => inputRef.current?.click()}
-              className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition ${
-                dragging ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white"
-              }`}
-            >
-              <p className="font-medium">Drop an .srt file here</p>
-              <p className="text-sm text-slate-500 mt-1">or click to pick one</p>
-              <input
-                ref={inputRef}
-                type="file"
-                accept={ACCEPT}
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void submit(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-
-            {state.kind === "parsing" && (
-              <p className="mt-6 text-sm text-slate-600">
-                Parsing {state.fileName}…
-              </p>
-            )}
-
-            {state.kind === "parseError" && (
-              <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                <span className="font-semibold">Error: </span>
-                {state.message}
-              </div>
-            )}
-          </>
+        {tab === "upload" && inUploadPhase && (
+          <UploadFlow
+            parsing={state.kind === "parsing"}
+            parsingName={state.kind === "parsing" ? state.fileName : undefined}
+            parseError={state.kind === "parseError" ? state.message : null}
+            onSubmit={submit}
+          />
         )}
 
         {tab === "upload" && state.kind === "configure" && (
@@ -285,10 +238,10 @@ export default function App() {
 
         {tab === "upload" && state.kind === "translateError" && (
           <div className="mt-6 space-y-3">
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <ErrorBanner>
               <span className="font-semibold">Translation failed: </span>
               {state.message}
-            </div>
+            </ErrorBanner>
             <button
               type="button"
               onClick={() =>
@@ -350,5 +303,110 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+const ACCEPT = ".srt";
+
+function validateFile(file: File): string | null {
+  if (!file.name.toLowerCase().endsWith(".srt"))
+    return "file must have a .srt extension";
+  if (file.size === 0) return "file is empty";
+  if (file.size > 4 * 1024 * 1024) return "file exceeds 4 MiB limit";
+  return null;
+}
+
+/**
+ * Upload drop zone + parsing/parse-error feedback. Owns the file input and
+ * drag state; App owns the state machine and tab routing (#22).
+ */
+function UploadFlow({
+  parsing,
+  parsingName,
+  parseError,
+  onSubmit,
+}: {
+  parsing: boolean;
+  parsingName?: string;
+  parseError: string | null;
+  onSubmit: (file: File) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function submit(file: File) {
+    const err = validateFile(file);
+    if (err) {
+      setValidationError(err);
+      return;
+    }
+    setValidationError(null);
+    onSubmit(file);
+  }
+
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label="Drop an .srt file here, or activate to pick one"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) void submit(file);
+        }}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+        className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+          dragging
+            ? "border-indigo-500 bg-indigo-50"
+            : "border-slate-300 bg-white"
+        }`}
+      >
+        <p className="font-medium">Drop an .srt file here</p>
+        <p className="text-sm text-slate-500 mt-1">or click to pick one</p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT}
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void submit(file);
+            e.target.value = "";
+          }}
+        />
+      </div>
+
+      {parsing && parsingName && (
+        <p className="mt-6 text-sm text-slate-600">Parsing {parsingName}…</p>
+      )}
+
+      {validationError && (
+        <ErrorBanner>
+          <span className="font-semibold">Error: </span>
+          {validationError}
+        </ErrorBanner>
+      )}
+
+      {parseError && (
+        <ErrorBanner>
+          <span className="font-semibold">Error: </span>
+          {parseError}
+        </ErrorBanner>
+      )}
+    </>
   );
 }

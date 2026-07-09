@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pkg_srt_services.api import Cue
-
 from srt_backend.detection import SUPPORTED_LANGS, detect
 
 

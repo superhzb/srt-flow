@@ -1,0 +1,27 @@
+# Repo-root tooling config. Not a uv workspace — the three deploy targets
+# (srt-backend app tree, srt-cloud-worker, srt-mlx-worker) must remain
+# separately-installable so the Linux cloud image never pulls mlx_lm and the
+# Mac image never pulls openai (see REFACTOR_PLAN.md Phase 2 deploy model).
+#
+# Ruff discovers this config by walking up from the target file, so every
+# package below inherits it as long as no intermediate pyproject overrides
+# [tool.ruff]. Per-file ignores are consolidated here with ** globs.
+#
+# HTTP client split (Phase 3 #10): app RUNTIME uses httpx>=0.28 everywhere
+# (worker_client, workers, pkg_auth.google). starlette 1.3.1's TestClient
+# hard-imports `httpx2 as httpx`, so httpx2 is a DEV-only dep wherever tests
+# use TestClient — it never ships in a deploy image.
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ANN"]
+
+[tool.ruff.lint.flake8-annotations]
+suppress-none-returning = true
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["ANN401"]
+"**/migrations/**/*.py" = ["ANN"]
+"**/migrations/**/*.mako" = []

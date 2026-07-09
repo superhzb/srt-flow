@@ -6,9 +6,9 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from .config import TranslationConfig
-from .llm import ensure_model_available, generate_text
 from .prompts import PairConfig, load_lang, load_template, make_pair
 from .validation import SourceItem, TranslationItem, ValidationError, parse_and_validate
 
@@ -17,20 +17,15 @@ logger = logging.getLogger(__name__)
 Translator = Callable[[str, TranslationConfig], str]
 
 
+class LLMBackend(Protocol):
+    def ensure_model_available(self, config: TranslationConfig) -> None: ...
+
+    def generate_text(self, prompt: str, config: TranslationConfig) -> str: ...
+
+
 @dataclass(frozen=True)
 class BatchProgress:
-    """Progress report for one completed top-level batch within one target.
-
-    Attributes:
-        target: Target language code (tgt_code of the pair).
-        target_index: 0-based index of this target among the supported pairs.
-        target_total: Total number of supported targets being translated.
-        batch_index: 0-based index of the just-completed top-level batch
-            within this target. Sub-splits from binary retry do not advance
-            this counter — one increment per top-level batch only.
-        batch_total: Total top-level batches for this target
-            (= ceil(len(items) / batch_size)).
-    """
+    """Progress report for one completed top-level batch within one target."""
 
     target: str
     target_index: int
@@ -49,9 +44,11 @@ def translate_segments(
     config: TranslationConfig | None = None,
     translator: Translator | None = None,
     on_progress: ProgressCallback | None = None,
+    backend: LLMBackend | None = None,
 ) -> tuple[list[str], list[dict[str, object]]]:
     active_config = config or TranslationConfig()
-    active_translator = translator or _generate_with_mlx
+    active_backend = backend or _RequireBackend()
+    active_translator = translator or active_backend.generate_text
     requested_targets = list(dict.fromkeys(targets))
     src_lang_cfg = load_lang(source_lang, active_config.languages_path)
     if src_lang_cfg is None:
@@ -72,12 +69,9 @@ def translate_segments(
         raise ValueError("No requested target is a supported language")
 
     if translator is None:
-        ensure_model_available(active_config.model_path)
+        active_backend.ensure_model_available(active_config)
 
-    items = [
-        {"id": segment["id"], source_lang: segment[source_lang]}
-        for segment in segments
-    ]
+    items = [{"id": segment["id"], source_lang: segment[source_lang]} for segment in segments]
     merged = [dict(item) for item in items]
     by_id = {segment["id"]: segment for segment in merged}
 
@@ -223,10 +217,9 @@ def _build_prompt(
     )
 
 
-def _generate_with_mlx(prompt: str, config: TranslationConfig) -> str:
-    return generate_text(
-        prompt=prompt,
-        model_path=config.model_path,
-        max_tokens=config.max_tokens,
-        temperature=config.temperature,
-    )
+class _RequireBackend:
+    def ensure_model_available(self, _config: TranslationConfig) -> None:
+        raise RuntimeError("No LLM backend configured")
+
+    def generate_text(self, _prompt: str, _config: TranslationConfig) -> str:
+        raise RuntimeError("No LLM backend configured")

@@ -7,6 +7,9 @@ imports must target ``pkg_job_orch.api`` only (AGENTS.md).
 from __future__ import annotations
 
 __all__ = [
+    # config
+    "JobOrchSettings",
+    "load_settings",
     # db + engine
     "DEFAULT_DATABASE_URL",
     "get_engine",
@@ -16,6 +19,7 @@ __all__ = [
     "session_scope",
     # models
     "Job",
+    "ProcessedEvent",
     "User",
     "tgt_langs_from_csv",
     "tgt_langs_to_csv",
@@ -54,6 +58,7 @@ __all__ = [
     "router",
 ]
 
+from .config import JobOrchSettings, load_settings
 from .db import (
     DEFAULT_DATABASE_URL,
     get_engine,
@@ -64,6 +69,7 @@ from .db import (
 )
 from .models import (
     Job,
+    ProcessedEvent,
     User,
     tgt_langs_from_csv,
     tgt_langs_to_csv,

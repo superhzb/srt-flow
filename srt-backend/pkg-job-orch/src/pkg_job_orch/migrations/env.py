@@ -8,23 +8,24 @@ can diff against the live models.
 from __future__ import annotations
 
 import logging
-import os
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
-from sqlmodel import SQLModel
 
 # Make sure all table-bearing models are imported so SQLModel.metadata
 # is fully populated before autogenerate runs.
+from pkg_job_orch import models as _models
+from pkg_job_orch.config import load_settings
+from sqlalchemy import engine_from_config, pool
+from sqlmodel import SQLModel
+
+_ = _models
 
 config = context.config
 
 # Inject the runtime DATABASE_URL if Alembic was invoked programmatically
-# (config.set_main_option("sqlalchemy.url", …)). Fall back to env var.
+# (config.set_main_option("sqlalchemy.url", …)). Fall back to env via settings.
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option(
-        "sqlalchemy.url", os.environ.get("DATABASE_URL", "sqlite:///./.data/dev/db.sqlite")
-    )
+    config.set_main_option("sqlalchemy.url", load_settings().database_url)
 
 _log = logging.getLogger("alembic.env.job_orch")
 

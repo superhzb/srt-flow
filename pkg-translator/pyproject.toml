@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pkg-translator"
+description = "Shared SRT translation worker core."
+authors = [{ name = "Brett" }]
+requires-python = ">=3.12"
+version = "0.1.0"
+dependencies = [
+  "fastapi>=0.116.0",
+  "pydantic>=2.11.0",
+  "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+  "build>=1.2.0",
+  "httpx2>=2.5.0",
+  "pyright>=1.1.400",
+  "pytest>=8.3.0",
+  "ruff>=0.11.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pkg_translator"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/pkg_translator/languages.yaml" = "pkg_translator/languages.yaml"
+"src/pkg_translator/template.txt" = "pkg_translator/template.txt"
+"src/pkg_translator/py.typed" = "pkg_translator/py.typed"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"

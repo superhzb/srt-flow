@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import TypeGuard, cast
 
 _SMART_QUOTE_MAP = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
-_STATS_RE = re.compile(r"^[\d\s,.\-:;]+$")
 
 
 class ValidationError(Exception):
@@ -66,15 +65,11 @@ def _is_translation_item(value: object, target_lang: str) -> TypeGuard[Translati
     if not isinstance(value, dict):
         return False
     mapping = cast(Mapping[object, object], value)
-    return (
-        _is_strict_int(mapping.get("id"))
-        and isinstance(mapping.get(target_lang), str)
-    )
+    return _is_strict_int(mapping.get("id")) and isinstance(mapping.get(target_lang), str)
 
 
 def _is_valid_translation(value: str) -> bool:
-    stripped = value.strip()
-    return bool(stripped) and (bool(_STATS_RE.match(stripped)) or len(stripped) > 0)
+    return bool(value.strip())
 
 
 def _is_strict_int(value: object) -> TypeGuard[int]:

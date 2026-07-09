@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from pkg_job_orch.api import (
     DEV_USER_ID,
     Job,

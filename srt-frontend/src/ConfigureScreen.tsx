@@ -1,25 +1,39 @@
 import { useEffect, useState } from "react";
 
 import {
+  errMessage,
   getLanguages,
   getWorkers,
   type LanguageInfo,
   type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
+import { ErrorBanner } from "./components.tsx";
 
 interface Props {
   fileName: string;
   prepare: PrepareResponse;
-  onProcess: (worker: string, sourceLang: string, targets: string[]) => void;
+  onProcess: (
+    workerId: string,
+    workerLabel: string,
+    sourceLang: string,
+    targets: string[],
+  ) => void;
   onBack: () => void;
 }
 
-export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props) {
+export function ConfigureScreen({
+  fileName,
+  prepare,
+  onProcess,
+  onBack,
+}: Props) {
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
   const [workerId, setWorkerId] = useState<string>("");
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
-  const [sourceLang, setSourceLang] = useState<string>(prepare.detected_lang ?? "");
+  const [sourceLang, setSourceLang] = useState<string>(
+    prepare.detected_lang ?? "",
+  );
   const [targets, setTargets] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
@@ -36,7 +50,7 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
       })
       .catch((e: unknown) => {
         if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "failed to load workers");
+          setLoadError(errMessage(e, "failed to load workers"));
         }
       });
     return () => {
@@ -56,7 +70,7 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
       })
       .catch((e: unknown) => {
         if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "failed to load languages");
+          setLoadError(errMessage(e, "failed to load languages"));
         }
       });
     return () => {
@@ -97,7 +111,7 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
       setProcessError("pick at least one target language");
       return;
     }
-    onProcess(workerId, sourceLang, [...targets]);
+    onProcess(workerId, worker?.label ?? workerId, sourceLang, [...targets]);
   }
 
   const worker = workers.find((w) => w.id === workerId);
@@ -109,11 +123,14 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
         <div>
           <h2 className="text-lg font-semibold">Configure translation</h2>
           <p className="text-sm text-slate-600">
-            <span className="font-medium">{fileName}</span> · {prepare.count} cues
+            <span className="font-medium">{fileName}</span> · {prepare.count}{" "}
+            cues
             {prepare.detected_lang && (
               <>
-                {" "}· detected: <span className="font-mono">{prepare.detected_lang}</span>
-                {" "}({(prepare.confidence * 100).toFixed(0)}%)
+                {" "}
+                · detected:{" "}
+                <span className="font-mono">{prepare.detected_lang}</span> (
+                {(prepare.confidence * 100).toFixed(0)}%)
               </>
             )}
           </p>
@@ -127,14 +144,12 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
         </button>
       </div>
 
-      {loadError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {loadError}
-        </div>
-      )}
+      {loadError && <ErrorBanner>{loadError}</ErrorBanner>}
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Worker</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Worker
+        </label>
         <select
           value={workerId}
           onChange={(e) => setWorkerId(e.target.value)}
@@ -150,7 +165,9 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Source language</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Source language
+        </label>
         <select
           value={sourceLang}
           onChange={(e) => setSourceLang(e.target.value)}
@@ -189,7 +206,10 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
                     onChange={() => toggleTarget(l.code)}
                   />
                   <span>
-                    {l.name} <span className="text-slate-500 font-mono text-xs">{l.code}</span>
+                    {l.name}{" "}
+                    <span className="text-slate-500 font-mono text-xs">
+                      {l.code}
+                    </span>
                   </span>
                 </label>
               );
@@ -197,11 +217,7 @@ export function ConfigureScreen({ fileName, prepare, onProcess, onBack }: Props)
         </div>
       </div>
 
-      {processError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {processError}
-        </div>
-      )}
+      {processError && <ErrorBanner>{processError}</ErrorBanner>}
 
       <button
         type="button"

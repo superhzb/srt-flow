@@ -44,8 +44,13 @@ export function CuesView({ result }: Props) {
             </thead>
             <tbody>
               {result.cues.map((cue) => (
-                <tr key={cue.index} className="border-t border-slate-100 align-top">
-                  <td className="px-3 py-2 text-slate-500 tabular-nums">{cue.index}</td>
+                <tr
+                  key={cue.index}
+                  className="border-t border-slate-100 align-top"
+                >
+                  <td className="px-3 py-2 text-slate-500 tabular-nums">
+                    {cue.index}
+                  </td>
                   <td className="px-3 py-2 font-mono text-xs">
                     <span className="text-slate-700">{cue.start}</span>
                     <span className="text-slate-400"> → </span>

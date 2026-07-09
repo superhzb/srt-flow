@@ -350,11 +350,6 @@ slice 3 — this slice fills it from real Google identities instead of the seede
 
 Free-tier guard → 402 over limit. Stripe checkout + webhook → tier=paid. Frontend `/billing`.
 
-## Slice 6 — Notification
-
-Email on job done/failed (Resend/SMTP). Async, off critical path. Replaces job-orch's
-stubbed notification dep.
-
 ## Slice 7 — Deploy
 
 2 uvicorn procs (staging :8001 / prod :8002) + cloudflared. StaticFiles serve `dist/` same-origin. Storage/DB outside repo (`~/srt-storage`, `~/srt-data`).

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import cast
 
 import hanzidentifier  # type: ignore[import-not-found,import-untyped]
-from lingua import Language, LanguageDetectorBuilder
+from lingua import Language, LanguageDetector, LanguageDetectorBuilder
 from pkg_srt_services.api import Cue
 
 __all__ = ["Detection", "detect", "SUPPORTED_LANGS"]
@@ -56,8 +57,11 @@ _LINGUA_TO_CODE: dict[Language, str] = {
 }
 
 # Module-level detector: lingua's builder is expensive to construct, the
-# built detector is stateless and safe to reuse.
-_DETECTOR = LanguageDetectorBuilder.from_languages(*_LINGUA_LANGS).build()
+# built detector is stateless and safe to reuse. Built lazily on first use
+# (honors the repo "no import side-effects" rule) via an lru_cache accessor.
+@lru_cache(maxsize=1)
+def _get_detector() -> LanguageDetector:
+    return LanguageDetectorBuilder.from_languages(*_LINGUA_LANGS).build()
 
 
 @dataclass(frozen=True)
@@ -92,7 +96,7 @@ def detect(cues: list[Cue]) -> Detection:
         return Detection(lang=None, confidence=0.0)
 
     sample = " ".join(texts)
-    values = _DETECTOR.compute_language_confidence_values(sample)
+    values = _get_detector().compute_language_confidence_values(sample)
     if not values:
         return Detection(lang=None, confidence=0.0)
 

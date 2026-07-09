@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlmodel import Session, select
-
 from pkg_job_orch.api import (
     DEV_USER_ID,
     Job,
@@ -14,6 +12,7 @@ from pkg_job_orch.api import (
     tgt_langs_from_csv,
     tgt_langs_to_csv,
 )
+from sqlmodel import Session, select
 
 
 def test_tgt_langs_round_trip() -> None:

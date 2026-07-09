@@ -2,6 +2,17 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "pkg-auth",
+    "pkg-billing",
+    "pkg-file-upload",
+    "pkg-job-orch",
+    "pkg-notification",
+    "pkg-srt-services",
+    "srt-backend",
+]
+
 [[package]]
 name = "alembic"
 version = "1.18.5"
@@ -654,13 +665,22 @@ wheels = [
 [[package]]
 name = "pkg-auth"
 version = "0.1.0"
-source = { directory = "pkg-auth" }
+source = { editable = "pkg-auth" }
 dependencies = [
     { name = "authlib" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "pkg-job-orch" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -668,6 +688,7 @@ requires-dist = [
     { name = "authlib", specifier = ">=1.6.0" },
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "httpx", specifier = ">=0.28.0" },
+    { name = "pkg-job-orch", editable = "pkg-job-orch" },
     { name = "pydantic-settings", specifier = ">=2.10.0" },
     { name = "pyjwt", specifier = ">=2.10.0" },
 ]
@@ -683,17 +704,27 @@ dev = [
 [[package]]
 name = "pkg-billing"
 version = "0.1.0"
-source = { directory = "pkg-billing" }
+source = { editable = "pkg-billing" }
 dependencies = [
     { name = "fastapi" },
     { name = "pkg-auth" },
+    { name = "pydantic-settings" },
     { name = "stripe" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116.0" },
-    { name = "pkg-auth", directory = "pkg-auth" },
+    { name = "pkg-auth", editable = "pkg-auth" },
+    { name = "pydantic-settings", specifier = ">=2.10.0" },
     { name = "stripe", specifier = ">=12.0.0" },
 ]
 
@@ -708,7 +739,15 @@ dev = [
 [[package]]
 name = "pkg-file-upload"
 version = "0.1.0"
-source = { directory = "pkg-file-upload" }
+source = { editable = "pkg-file-upload" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
 
 [package.metadata]
 
@@ -723,23 +762,34 @@ dev = [
 [[package]]
 name = "pkg-job-orch"
 version = "0.1.0"
-source = { directory = "pkg-job-orch" }
+source = { editable = "pkg-job-orch" }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
-    { name = "httpx2" },
+    { name = "httpx" },
     { name = "pkg-file-upload" },
     { name = "pkg-srt-services" },
+    { name = "pydantic-settings" },
     { name = "sqlmodel" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "fastapi", specifier = ">=0.116.0" },
-    { name = "httpx2", specifier = ">=2.5.0" },
-    { name = "pkg-file-upload", directory = "pkg-file-upload" },
-    { name = "pkg-srt-services", directory = "pkg-srt-services" },
+    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "pkg-file-upload", editable = "pkg-file-upload" },
+    { name = "pkg-srt-services", editable = "pkg-srt-services" },
+    { name = "pydantic-settings", specifier = ">=2.10.0" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
 ]
 
@@ -753,9 +803,40 @@ dev = [
 ]
 
 [[package]]
+name = "pkg-notification"
+version = "0.1.0"
+source = { editable = "pkg-notification" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "build", specifier = ">=1.2.0" },
+    { name = "pyright", specifier = ">=1.1.400" },
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "ruff", specifier = ">=0.11.0" },
+]
+
+[[package]]
 name = "pkg-srt-services"
 version = "0.1.0"
-source = { directory = "pkg-srt-services" }
+source = { editable = "pkg-srt-services" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
 
 [package.metadata]
 
@@ -1124,7 +1205,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "hanzidentifier" },
-    { name = "httpx2" },
+    { name = "httpx" },
     { name = "lingua-language-detector" },
     { name = "pkg-auth" },
     { name = "pkg-billing" },
@@ -1139,6 +1220,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "build" },
+    { name = "httpx2" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1149,21 +1231,22 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "hanzidentifier", specifier = ">=1.3.0" },
-    { name = "httpx2", specifier = ">=2.5.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "lingua-language-detector", specifier = ">=2.2.0" },
-    { name = "pkg-auth", directory = "pkg-auth" },
-    { name = "pkg-billing", directory = "pkg-billing" },
-    { name = "pkg-file-upload", directory = "pkg-file-upload" },
-    { name = "pkg-job-orch", directory = "pkg-job-orch" },
-    { name = "pkg-srt-services", directory = "pkg-srt-services" },
+    { name = "pkg-auth", editable = "pkg-auth" },
+    { name = "pkg-billing", editable = "pkg-billing" },
+    { name = "pkg-file-upload", editable = "pkg-file-upload" },
+    { name = "pkg-job-orch", editable = "pkg-job-orch" },
+    { name = "pkg-srt-services", editable = "pkg-srt-services" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "build", specifier = ">=1.2.0" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },

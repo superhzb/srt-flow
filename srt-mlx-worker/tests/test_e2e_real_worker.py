@@ -15,7 +15,6 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pytest
-
 from srt_mlx_worker.config import TranslationConfig
 
 REPORT_PATH = Path(__file__).parent / "reports" / "srt_mlx_worker_e2e_report.md"

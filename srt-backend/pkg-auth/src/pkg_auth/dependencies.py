@@ -12,7 +12,7 @@ from pkg_auth.models import User, UserStore
 from pkg_auth.state import get_user_store
 from pkg_auth.tokens import verify_session_token
 
-_TIER_RANK: dict[Tier, int] = {"free": 0, "paid": 1}
+_TIER_RANK: dict[str, int] = {"free": 0, "paid": 1}
 
 
 async def get_current_user(

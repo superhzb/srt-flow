@@ -8,9 +8,10 @@ from typing import Any, Literal, cast
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from pkg_auth.models import Tier
+
 AuthMode = Literal["google", "dev"]
 Environment = Literal["dev", "staging", "prod"]
-Tier = Literal["free", "paid"]
 
 
 class AuthConfigError(RuntimeError):

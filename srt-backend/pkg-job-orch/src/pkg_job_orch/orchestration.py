@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,6 +23,7 @@ from pkg_file_upload.api import Storage
 from pkg_srt_services.api import Cue, parse, serialize
 from sqlmodel import Session, col, select
 
+from .config import DEFAULT_DEV_USER_EMAIL, load_settings
 from .db import session_scope
 from .models import Job, User, tgt_langs_from_csv, tgt_langs_to_csv
 from .worker_client import (
@@ -32,7 +32,7 @@ from .worker_client import (
     build_segments,
     stream_translate,
 )
-from .workers import worker_base_url
+from .workers import WorkerResolutionError, worker_base_url
 
 __all__ = [
     "DEFAULT_DEV_USER_EMAIL",
@@ -55,7 +55,6 @@ logger = logging.getLogger(__name__)
 # The dev user owns every slice-3 job. A fixed synthetic id keeps test
 # assertions stable; slice 4 swaps this for real OAuth upserts.
 DEV_USER_ID = "dev-user"
-DEFAULT_DEV_USER_EMAIL = "dev@local"
 
 # Polling cadence on an empty queue — keeps the loop responsive to the
 # shutdown signal without busy-spinning.
@@ -140,8 +139,9 @@ def seed_dev_user(
     Called from the lifespan on startup. ``email``/``tier`` default to
     env (``DEV_USER_EMAIL`` / ``DEV_USER_TIER``) or sane defaults.
     """
-    email = email or os.environ.get("DEV_USER_EMAIL", DEFAULT_DEV_USER_EMAIL)
-    tier = tier or os.environ.get("DEV_USER_TIER", "free")
+    settings = load_settings()
+    email = email or settings.dev_user_email
+    tier = tier or settings.dev_user_tier
     existing = session.get(User, user_id)
     if existing is not None:
         return existing
@@ -193,7 +193,7 @@ def enqueue(
     # Resolve worker eagerly — 404 belongs to the POST, not the worker_loop.
     try:
         base_url = worker_base_url(worker_id)
-    except ValueError as exc:
+    except WorkerResolutionError as exc:
         raise EnqueueError(str(exc)) from exc
 
     job_id = uuid.uuid4().hex

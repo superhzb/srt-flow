@@ -1,63 +1,70 @@
 import { useEffect, useState } from "react";
 
 import {
+  errMessage,
   getMe,
   googleLoginUrl,
   logout,
   paidCheck,
   type Me,
 } from "./api.ts";
+import { ErrorBanner, RefreshButton, TierBadge } from "./components.tsx";
 
-type CheckStatus = 200 | 401 | 402 | null;
+// Discriminated unions replace the 7 ad-hoc useState values (#24), mirroring
+// BillingScreen's LoadState pattern: each async flow is one state machine.
+type LoadState =
+  | { kind: "loading" }
+  | { kind: "ready"; me: Me | null }
+  | { kind: "error"; message: string };
+
+type TierCheckState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "result"; status: number }
+  | { kind: "error"; message: string };
 
 export function AuthScreen() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingSession, setLoadingSession] = useState(false);
+  const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [tierCheck, setTierCheck] = useState<TierCheckState>({ kind: "idle" });
   const [loggingOut, setLoggingOut] = useState(false);
-  const [checkingTier, setCheckingTier] = useState(false);
-  const [checkStatus, setCheckStatus] = useState<CheckStatus>(null);
 
   function refreshSession() {
-    setLoadingSession(true);
-    setError(null);
+    setState({ kind: "loading" });
     getMe()
-      .then((nextMe) => {
-        setMe(nextMe);
-        setLoaded(true);
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "failed to load session");
-      })
-      .finally(() => {
-        setLoadingSession(false);
-      });
+      .then((me) => setState({ kind: "ready", me }))
+      .catch((e: unknown) =>
+        setState({
+          kind: "error",
+          message: errMessage(e, "failed to load session"),
+        }),
+      );
   }
 
   async function handleLogout() {
     setLoggingOut(true);
-    setError(null);
     try {
       await logout();
-      setCheckStatus(null);
+      setTierCheck({ kind: "idle" });
       refreshSession();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to log out");
+      setState({
+        kind: "error",
+        message: errMessage(e, "failed to log out"),
+      });
     } finally {
       setLoggingOut(false);
     }
   }
 
   async function handlePaidCheck() {
-    setCheckingTier(true);
-    setError(null);
+    setTierCheck({ kind: "checking" });
     try {
-      setCheckStatus((await paidCheck()) as CheckStatus);
+      setTierCheck({ kind: "result", status: await paidCheck() });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to check tier");
-    } finally {
-      setCheckingTier(false);
+      setTierCheck({
+        kind: "error",
+        message: errMessage(e, "failed to check tier"),
+      });
     }
   }
 
@@ -72,38 +79,35 @@ export function AuthScreen() {
           <h2 className="text-lg font-semibold">Auth</h2>
           <p className="text-sm text-slate-600">Session and tier checks.</p>
         </div>
-        <button
-          type="button"
+        <RefreshButton
           onClick={refreshSession}
-          disabled={loadingSession}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loadingSession ? "Refreshing..." : "Refresh"}
-        </button>
+          loading={state.kind === "loading"}
+        />
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {error}
-        </div>
+      {state.kind === "error" && <ErrorBanner>{state.message}</ErrorBanner>}
+      {tierCheck.kind === "error" && (
+        <ErrorBanner>{tierCheck.message}</ErrorBanner>
       )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold">Session</h3>
-            {!loaded && !error && (
+            {state.kind === "loading" && (
               <p className="mt-1 text-sm text-slate-600">Loading...</p>
             )}
-            {loaded && me === null && (
+            {state.kind === "ready" && state.me === null && (
               <p className="mt-1 text-sm text-slate-600">
                 Not authenticated (401)
               </p>
             )}
-            {me && (
+            {state.kind === "ready" && state.me && (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-mono text-slate-800">{me.email}</span>
-                <TierBadge tier={me.tier} />
+                <span className="font-mono text-slate-800">
+                  {state.me.email}
+                </span>
+                <TierBadge tier={state.me.tier} />
               </div>
             )}
           </div>
@@ -140,16 +144,16 @@ export function AuthScreen() {
           <button
             type="button"
             onClick={handlePaidCheck}
-            disabled={checkingTier}
+            disabled={tierCheck.kind === "checking"}
             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {checkingTier ? "Checking..." : "Check"}
+            {tierCheck.kind === "checking" ? "Checking..." : "Check"}
           </button>
         </div>
 
-        {checkStatus !== null && (
+        {tierCheck.kind === "result" && (
           <div className="mt-3">
-            <CheckBadge status={checkStatus} />
+            <CheckBadge status={tierCheck.status} />
           </div>
         )}
       </section>
@@ -157,20 +161,7 @@ export function AuthScreen() {
   );
 }
 
-function TierBadge({ tier }: { tier: Me["tier"] }) {
-  const classes =
-    tier === "paid"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : "border-slate-200 bg-slate-50 text-slate-700";
-
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {tier}
-    </span>
-  );
-}
-
-function CheckBadge({ status }: { status: Exclude<CheckStatus, null> }) {
+function CheckBadge({ status }: { status: number }) {
   if (status === 200) {
     return (
       <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-sm font-medium text-emerald-700">

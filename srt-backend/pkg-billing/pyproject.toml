@@ -12,6 +12,7 @@ version = "0.1.0"
 dependencies = [
   "fastapi>=0.116.0",
   "pkg-auth",
+  "pydantic-settings>=2.10.0",
   "stripe>=12.0.0",
 ]
 
@@ -24,7 +25,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-pkg-auth = { path = "../pkg-auth" }
+pkg-auth = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pkg_billing"]
@@ -34,24 +35,9 @@ addopts = "-ra --strict-markers --strict-config"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = [
-  "E",
-  "F",
-  "I",
-  "B",
-  "UP",
-  "ANN",
-]
-
-[tool.ruff.lint.flake8-annotations]
-suppress-none-returning = true
-
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 include = ["src", "tests"]
+venvPath = ".."
+venv = ".venv"

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { fetchJobOutput, type JobResult } from "./api.ts";
+import { type JobResult } from "./api.ts";
+import { useJobOutput } from "./hooks.ts";
 
 interface Props {
   jobId: string;
@@ -9,14 +10,22 @@ interface Props {
   onViewJobs: () => void;
 }
 
-export function ResultsScreen({ jobId, results, onRestart, onViewJobs }: Props) {
+export function ResultsScreen({
+  jobId,
+  results,
+  onRestart,
+  onViewJobs,
+}: Props) {
   return (
     <section className="mt-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Translated · {results.length}</h2>
+          <h2 className="text-lg font-semibold">
+            Translated · {results.length}
+          </h2>
           <p className="text-sm text-slate-600">
-            job <span className="font-mono">{jobId.slice(0, 8)}</span> · outputs saved
+            job <span className="font-mono">{jobId.slice(0, 8)}</span> · outputs
+            saved
           </p>
         </div>
         <div className="flex gap-2">
@@ -47,27 +56,7 @@ export function ResultsScreen({ jobId, results, onRestart, onViewJobs }: Props) 
 
 function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
   const [showSrt, setShowSrt] = useState(false);
-  const [srtText, setSrtText] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Lazy-load the .srt text only when the user toggles the preview. The
-  // poll response no longer carries it inline (slice-3 wire-shape change).
-  useEffect(() => {
-    if (!showSrt || srtText !== null || loadError) return;
-    let cancelled = false;
-    fetchJobOutput(result.download_url)
-      .then((text) => {
-        if (!cancelled) setSrtText(text);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "failed to load output");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showSrt, srtText, loadError, result.download_url]);
+  const { text, error } = useJobOutput(result.download_url, showSrt);
 
   // Download is a plain anchor to the same download_url — the browser
   // streams the .srt attachment directly, no JS blob juggling needed.
@@ -98,13 +87,13 @@ function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
         </div>
       </div>
       {showSrt ? (
-        loadError ? (
-          <div className="p-4 text-sm text-red-700">Error: {loadError}</div>
-        ) : srtText === null ? (
+        error ? (
+          <div className="p-4 text-sm text-red-700">Error: {error}</div>
+        ) : text === null ? (
           <div className="p-4 text-sm text-slate-500">Loading…</div>
         ) : (
           <pre className="bg-slate-900 text-slate-100 p-4 overflow-auto text-xs max-h-96">
-            {srtText}
+            {text}
           </pre>
         )
       ) : (

@@ -8,3 +8,6 @@ __pycache__/
 .ruff_cache/
 .data/
 .run/
+srt-cloud-worker/tests/reports/*.md
+srt-mlx-worker/tests/reports/*.md
+srt-cloud-worker/dist/

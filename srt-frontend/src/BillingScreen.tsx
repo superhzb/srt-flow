@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-import { getMe, googleLoginUrl, startCheckout, type Me } from "./api.ts";
+import {
+  errMessage,
+  getMe,
+  googleLoginUrl,
+  startCheckout,
+  type Me,
+} from "./api.ts";
+import { ErrorBanner, RefreshButton, TierBadge } from "./components.tsx";
+import { usePoll } from "./hooks.ts";
 
 type LoadState =
   | { kind: "loading" }
@@ -21,22 +29,24 @@ export function BillingScreen({
   onCheckoutStatusHandled,
 }: BillingScreenProps) {
   const initialCheckoutStatusRef = useRef(checkoutStatus);
-  const onCheckoutStatusHandledRef = useRef(onCheckoutStatusHandled);
+  const shouldConfirm = initialCheckoutStatusRef.current === "success";
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   function refresh() {
     setState({ kind: "loading" });
     setCheckoutError(null);
     setConfirmation(null);
+    setConfirmError(null);
     getMe()
       .then((me) => setState({ kind: "ready", me }))
       .catch((e: unknown) => {
         setState({
           kind: "error",
-          message: e instanceof Error ? e.message : "failed to load billing",
+          message: errMessage(e, "failed to load billing"),
         });
       });
   }
@@ -48,7 +58,7 @@ export function BillingScreen({
       const { url } = await startCheckout();
       window.location.href = url;
     } catch (e) {
-      setCheckoutError(e instanceof Error ? e.message : "failed to start checkout");
+      setCheckoutError(errMessage(e, "failed to start checkout"));
     } finally {
       setCheckoutLoading(false);
     }
@@ -56,57 +66,43 @@ export function BillingScreen({
 
   useEffect(() => {
     refresh();
+    if (initialCheckoutStatusRef.current !== null) {
+      onCheckoutStatusHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once intent
   }, []);
+
+  // Payment-confirmation loop: poll /me until tier flips to paid or the 20s
+  // deadline elapses. Replaces the hand-rolled setTimeout/cancelled loop (#20).
+  const confirmPoll = usePoll(
+    () => getMe(),
+    (me) => me?.tier === "paid",
+    {
+      enabled: shouldConfirm,
+      maxMs: 20_000,
+      stopOnError: false,
+      immediateFirst: true,
+    },
+  );
 
   useEffect(() => {
-    const initialCheckoutStatus = initialCheckoutStatusRef.current;
-    if (initialCheckoutStatus === null) return;
-    onCheckoutStatusHandledRef.current?.();
-    if (initialCheckoutStatus === "cancel") return;
-
-    let cancelled = false;
-    let timeoutId: number | undefined = undefined;
-    const deadline = Date.now() + 20_000;
-
-    setCheckoutError(null);
-    setConfirmation({ kind: "confirming" });
-
-    function poll() {
-      getMe()
-        .then((me) => {
-          if (cancelled) return;
-          setState({ kind: "ready", me });
-          if (me?.tier === "paid") {
-            setConfirmation(null);
-            return;
-          }
-          if (Date.now() >= deadline) {
-            setConfirmation({ kind: "timeout" });
-            return;
-          }
-          timeoutId = window.setTimeout(poll, 1500);
-        })
-        .catch((e: unknown) => {
-          if (cancelled) return;
-          if (Date.now() >= deadline) {
-            setConfirmation({ kind: "timeout" });
-            setState({
-              kind: "error",
-              message: e instanceof Error ? e.message : "failed to confirm payment",
-            });
-            return;
-          }
-          timeoutId = window.setTimeout(poll, 1500);
-        });
+    if (!shouldConfirm) return;
+    if (confirmPoll.result) setState({ kind: "ready", me: confirmPoll.result });
+    if (confirmPoll.terminal) {
+      setConfirmation(null);
+    } else if (confirmPoll.timedOut) {
+      setConfirmation({ kind: "timeout" });
+      if (confirmPoll.error) setConfirmError(confirmPoll.error);
+    } else {
+      setConfirmation({ kind: "confirming" });
     }
-
-    poll();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    };
-  }, []);
+  }, [
+    confirmPoll.result,
+    confirmPoll.terminal,
+    confirmPoll.timedOut,
+    confirmPoll.error,
+    shouldConfirm,
+  ]);
 
   return (
     <section className="mt-6 space-y-5">
@@ -115,27 +111,12 @@ export function BillingScreen({
           <h2 className="text-lg font-semibold">Billing</h2>
           <p className="text-sm text-slate-600">Plan status and checkout.</p>
         </div>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={state.kind === "loading"}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {state.kind === "loading" ? "Refreshing..." : "Refresh"}
-        </button>
+        <RefreshButton onClick={refresh} loading={state.kind === "loading"} />
       </div>
 
-      {state.kind === "error" && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {state.message}
-        </div>
-      )}
-
-      {checkoutError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {checkoutError}
-        </div>
-      )}
+      {state.kind === "error" && <ErrorBanner>{state.message}</ErrorBanner>}
+      {checkoutError && <ErrorBanner>{checkoutError}</ErrorBanner>}
+      {confirmError && <ErrorBanner>{confirmError}</ErrorBanner>}
 
       {confirmation?.kind === "confirming" && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800">
@@ -179,7 +160,9 @@ export function BillingScreen({
             <div>
               <h3 className="font-semibold">Free plan</h3>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-mono text-slate-800">{state.me.email}</span>
+                <span className="font-mono text-slate-800">
+                  {state.me.email}
+                </span>
                 <TierBadge tier={state.me.tier} />
               </div>
             </div>
@@ -209,19 +192,5 @@ export function BillingScreen({
         )}
       </section>
     </section>
-  );
-}
-
-function TierBadge({ tier }: { tier: Me["tier"] }) {
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-        tier === "paid"
-          ? "bg-emerald-100 text-emerald-700"
-          : "bg-slate-100 text-slate-700"
-      }`}
-    >
-      {tier}
-    </span>
   );
 }

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 
 import {
-  fetchJobOutput,
+  errMessage,
   listJobs,
   pollJob,
   type JobResult,
   type JobStatus,
   type JobSummary,
 } from "./api.ts";
+import { ErrorBanner, RefreshButton, SrtPreview } from "./components.tsx";
+import { usePoll } from "./hooks.ts";
 
 // History table from GET /api/jobs — the first thing persistence buys the
 // user (PLAN.md slice 3). Clicking a row opens a detail panel that polls
@@ -20,9 +22,7 @@ export function JobsScreen() {
   function refresh() {
     listJobs()
       .then(setJobs)
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "failed to load jobs");
-      });
+      .catch((e: unknown) => setError(errMessage(e, "failed to load jobs")));
   }
 
   useEffect(() => {
@@ -38,20 +38,10 @@ export function JobsScreen() {
             History of translation jobs (dev user).
           </p>
         </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
-        >
-          Refresh
-        </button>
+        <RefreshButton onClick={refresh} />
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {jobs === null && !error && (
         <p className="text-sm text-slate-600">Loading…</p>
@@ -75,32 +65,44 @@ export function JobsScreen() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((j) => (
-                <tr
-                  key={j.id}
-                  onClick={() => setSelectedId(j.id)}
-                  className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50 ${
-                    selectedId === j.id ? "bg-indigo-50" : ""
-                  }`}
-                >
-                  <td className="px-3 py-2 font-mono text-xs">{j.id.slice(0, 8)}</td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={j.status} />
-                  </td>
-                  <td className="px-3 py-2">{j.worker}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    <span className="text-slate-700">{j.src_lang}</span>
-                    <span className="text-slate-400"> → </span>
-                    {j.tgt_langs.join(", ")}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums">
-                    {(j.progress * 100).toFixed(0)}%
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-500">
-                    {new Date(j.created_at).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
+              {jobs.map((j) => {
+                const active = selectedId === j.id;
+                return (
+                  <tr
+                    key={j.id}
+                    tabIndex={0}
+                    onClick={() => setSelectedId(j.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedId(j.id);
+                      }
+                    }}
+                    className={`border-t border-slate-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 hover:bg-slate-50 ${
+                      active ? "bg-indigo-50" : ""
+                    }`}
+                  >
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {j.id.slice(0, 8)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={j.status} />
+                    </td>
+                    <td className="px-3 py-2">{j.worker}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <span className="text-slate-700">{j.src_lang}</span>
+                      <span className="text-slate-400"> → </span>
+                      {j.tgt_langs.join(", ")}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {(j.progress * 100).toFixed(0)}%
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500">
+                      {new Date(j.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -130,33 +132,11 @@ function StatusBadge({ status }: { status: JobStatus }) {
 }
 
 function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
-  const [body, setBody] = useState<Awaited<ReturnType<typeof pollJob>> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    async function tick() {
-      try {
-        const b = await pollJob(jobId);
-        if (cancelled) return;
-        setBody(b);
-        if (b.status === "done" || b.status === "failed") return;
-        timer = setTimeout(tick, 1500);
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "poll failed");
-        }
-      }
-    }
-
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [jobId]);
+  const { result: body, error } = usePoll(
+    () => pollJob(jobId),
+    (b) => b.status === "done" || b.status === "failed",
+    { immediateFirst: true },
+  );
 
   return (
     <div className="rounded-lg border border-slate-300 p-4 space-y-3 bg-white">
@@ -179,9 +159,7 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
             <div>
               status: <StatusBadge status={body.status} />
             </div>
-            <div>
-              progress: {(body.progress * 100).toFixed(0)}%
-            </div>
+            <div>progress: {(body.progress * 100).toFixed(0)}%</div>
             <div>
               worker: <span className="font-mono">{body.worker}</span>
             </div>
@@ -191,7 +169,9 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
                 {body.src_lang} → {body.tgt_langs.join(", ")}
               </span>
             </div>
-            {body.error && <div className="text-red-700">error: {body.error}</div>}
+            {body.error && (
+              <div className="text-red-700">error: {body.error}</div>
+            )}
           </div>
           {body.results && body.results.length > 0 && (
             <ResultsList results={body.results} />
@@ -217,44 +197,10 @@ function ResultsList({ results }: { results: JobResult[] }) {
             >
               download
             </a>
-            <PreviewButton url={r.download_url} lang={r.lang} />
+            <SrtPreview url={r.download_url} />
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function PreviewButton({ url, lang }: { url: string; lang: string }) {
-  const [text, setText] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-
-  function toggle() {
-    if (!open && text === null) {
-      fetchJobOutput(url)
-        .then(setText)
-        .catch(() => setText("(failed to load)"));
-    }
-    setOpen(!open);
-  }
-
-  return (
-    <div className="ml-2">
-      <button
-        type="button"
-        onClick={toggle}
-        className="text-xs text-slate-500 hover:text-slate-800"
-      >
-        {open ? "hide" : "preview"}
-      </button>
-      {open && text !== null && (
-        <pre className="mt-1 bg-slate-900 text-slate-100 p-2 rounded text-xs overflow-auto max-h-48">
-          {text}
-        </pre>
-      )}
-      {open && text === null && (
-        <p className="text-xs text-slate-500 mt-1">loading {lang}…</p>
-      )}
     </div>
   );
 }

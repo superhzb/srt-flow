@@ -1,8 +1,4 @@
-"""Prompt template and language registry.
-
-Languages are declared individually (code, name, example). Any language may act
-as source or target; a runtime pair is built from two ``LangConfig`` entries.
-"""
+"""Prompt template and language registry."""
 
 from dataclasses import dataclass
 from functools import lru_cache

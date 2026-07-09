@@ -12,9 +12,10 @@ version = "0.1.0"
 dependencies = [
   "alembic>=1.13.0",
   "fastapi>=0.116.0",
-  "httpx2>=2.5.0",
+  "httpx>=0.28.0",
   "pkg-file-upload",
   "pkg-srt-services",
+  "pydantic-settings>=2.10.0",
   "sqlmodel>=0.0.22",
 ]
 
@@ -28,8 +29,8 @@ dev = [
 ]
 
 [tool.uv.sources]
-pkg-file-upload = { path = "../pkg-file-upload" }
-pkg-srt-services = { path = "../pkg-srt-services" }
+pkg-file-upload = { workspace = true }
+pkg-srt-services = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pkg_job_orch"]
@@ -44,34 +45,12 @@ asyncio_mode = "auto"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = [
-  "E",
-  "F",
-  "I",
-  "B",
-  "UP",
-  "ANN",
-]
-
-[tool.ruff.lint.flake8-annotations]
-suppress-none-returning = true
-
-[tool.ruff.lint.per-file-ignores]
-# Migrations + script template are not part of the typed surface.
-"src/pkg_job_orch/migrations/**/*.py" = ["ANN"]
-"src/pkg_job_orch/migrations/**/*.mako" = []
-# Test fakes intentionally use Any for the worker-client signature.
-"tests/**/*.py" = ["ANN401"]
-
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 include = ["src", "tests"]
+venvPath = ".."
+venv = ".venv"
 exclude = [
   "src/pkg_job_orch/migrations/script.py.mako",
 ]

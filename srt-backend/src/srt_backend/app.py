@@ -74,12 +74,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx = _build_ctx()
     app.state.job_ctx = ctx
     app.state.worker_stop = asyncio.Event()
-    app_store = AppStore()
+    database_url = os.environ.get("DATABASE_URL")
+    app_store = AppStore(database_url)
     app.state.app_store = app_store
     set_user_store(app_store)
     set_billing_store(app_store)
 
-    database_url = os.environ.get("DATABASE_URL")
     run_migrations(database_url)
 
     with Session(get_engine(database_url)) as session:
@@ -129,7 +129,3 @@ def _create_app() -> FastAPI:
 
 
 api = _create_app()
-
-
-# Quiet linter on Path import — reserved for future StaticFiles mount (slice 7).
-_ = Path

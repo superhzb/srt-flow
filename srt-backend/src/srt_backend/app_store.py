@@ -1,80 +1,123 @@
-"""Shared prototype app store for auth and billing.
+"""Shared DB-backed app store for auth and billing.
 
-This is a dev-only bridge until the auth user model is unified with the
-durable job-orch user table.
+Implements both ``UserStore`` (pkg-auth) and ``BillingStore`` (pkg-billing)
+against the canonical ``pkg_job_orch`` DB. ``User`` is the job-orch
+SQLModel row (Phase 0 #2 / Phase 3 #9); ``session_scope`` uses
+``expire_on_commit=False`` so callers can read attributes after the
+session closes — no detached value type is needed.
 """
 
 from __future__ import annotations
 
-from pkg_auth.api import User, UserStore
+import logging
+import uuid
+
+from pkg_auth.api import UserStore
 from pkg_auth.models import Tier
-from pkg_billing.api import BillingStore
+from pkg_billing.api import BillingStore, UserId
+from pkg_job_orch.api import DEV_USER_ID, ProcessedEvent, User, session_scope
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 
 __all__ = ["AppStore"]
 
+logger = logging.getLogger(__name__)
+
 
 class AppStore(UserStore, BillingStore):
-    """In-memory store shared by pkg-auth and pkg-billing in one process."""
+    """SQLite-backed store shared by pkg-auth and pkg-billing."""
 
-    def __init__(self) -> None:
-        self._next_id = 1
-        self._users_by_id: dict[int, User] = {}
-        self._users_by_sub: dict[str, User] = {}
-        self._processed_events: set[str] = set()
-        self._usage_this_period: dict[int, int] = {}
+    def __init__(self, database_url: str | None = None) -> None:
+        self._database_url = database_url
+        self._usage_this_period: dict[str, int] = {}
 
     async def get_by_sub(self, google_sub: str) -> User | None:
-        return self._users_by_sub.get(google_sub)
+        with session_scope(self._database_url) as session:
+            row = session.exec(select(User).where(User.google_sub == google_sub)).first()
+            return row if row is not None else None
 
     async def upsert(self, *, google_sub: str, email: str, tier: Tier = "free") -> User:
-        existing = self._users_by_sub.get(google_sub)
-        if existing is None:
-            user = User(id=self._next_id, google_sub=google_sub, email=email, tier=tier)
-            self._next_id += 1
-        else:
-            next_tier: Tier = "paid" if existing.tier == "paid" and tier == "free" else tier
-            user = User(id=existing.id, google_sub=google_sub, email=email, tier=next_tier)
-
-        self._store_user(user)
-        return user
+        with session_scope(self._database_url) as session:
+            row = session.exec(select(User).where(User.google_sub == google_sub)).first()
+            if row is None:
+                row = User(
+                    id=uuid.uuid4().hex,
+                    google_sub=google_sub,
+                    email=email,
+                    tier=tier,
+                )
+                session.add(row)
+            else:
+                row.email = email
+                # Sticky-paid: never downgrade a paid user on re-upsert.
+                row.tier = "paid" if row.tier == "paid" and tier == "free" else tier
+            session.flush()
+            return row
 
     async def get_dev_user(self, *, email: str, tier: Tier) -> User:
-        return await self.upsert(google_sub=f"dev:{email}", email=email, tier=tier)
+        google_sub = f"dev:{email}"
+        with session_scope(self._database_url) as session:
+            row = session.get(User, DEV_USER_ID)
+            if row is None:
+                row = User(id=DEV_USER_ID, google_sub=google_sub, email=email, tier=tier)
+                session.add(row)
+            else:
+                row.google_sub = google_sub
+                row.email = email
+                row.tier = "paid" if row.tier == "paid" and tier == "free" else tier
+            session.flush()
+            return row
 
-    async def get_by_id(self, user_id: int) -> User | None:
-        return self._users_by_id.get(user_id)
+    async def get_by_id(self, user_id: UserId) -> User | None:
+        with session_scope(self._database_url) as session:
+            return session.get(User, str(user_id))
 
     async def get_by_email(self, email: str) -> list[User]:
-        return [user for user in self._users_by_id.values() if user.email == email]
+        with session_scope(self._database_url) as session:
+            return list(session.exec(select(User).where(User.email == email)).all())
 
-    async def mark_paid(
+    async def apply_paid_webhook_once(
         self,
-        user_id: int,
-        *,
         event_id: str,
         session_id: str,
+        user_id: UserId,
         paid_at: str,
-    ) -> None:
-        del event_id, session_id, paid_at
-        user = self._users_by_id[user_id]
-        self._store_user(
-            User(
-                id=user.id,
-                google_sub=user.google_sub,
-                email=user.email,
-                tier="paid",
-            )
-        )
+    ) -> bool:
+        """Insert the processed-event row and flip the user to paid in one txn.
+
+        The unique PK on ``processed_events.event_id`` is the dedupe guard:
+        a duplicate insert raises ``IntegrityError`` and the whole txn rolls
+        back, so the tier is never flipped without recording the event (and
+        vice-versa). Returns ``False`` if the event was already recorded.
+        """
+        try:
+            with session_scope(self._database_url) as session:
+                user_id_str = str(user_id)
+                user = session.get(User, user_id_str)
+                if user is None:
+                    logger.warning(
+                        "apply_paid_webhook_once: user %s not found; ignoring event %s",
+                        user_id_str,
+                        event_id,
+                    )
+                    return False
+                session.add(
+                    ProcessedEvent(
+                        event_id=event_id,
+                        session_id=session_id,
+                        user_id=user_id_str,
+                        paid_at=paid_at,
+                    )
+                )
+                user.tier = "paid"
+                session.add(user)
+        except IntegrityError:
+            return False
+        return True
 
     async def has_processed_event(self, event_id: str) -> bool:
-        return event_id in self._processed_events
+        with session_scope(self._database_url) as session:
+            return session.get(ProcessedEvent, event_id) is not None
 
-    async def record_event(self, event_id: str) -> None:
-        self._processed_events.add(event_id)
-
-    async def usage_count_this_period(self, user_id: int) -> int:
-        return self._usage_this_period.get(user_id, 0)
-
-    def _store_user(self, user: User) -> None:
-        self._users_by_id[user.id] = user
-        self._users_by_sub[user.google_sub] = user
+    async def usage_count_this_period(self, user_id: UserId) -> int:
+        return self._usage_this_period.get(str(user_id), 0)

@@ -11,7 +11,6 @@ the job deterministically without hitting any real worker HTTP.
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -19,6 +18,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_billing_settings_cache() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Clear the cached billing settings so each test re-reads its own env."""
+    from pkg_billing.api import reset_settings_cache
+
+    reset_settings_cache()
+    yield
+    reset_settings_cache()
 
 
 @pytest.fixture
@@ -105,7 +114,6 @@ def client(temp_env: dict[str, str]) -> Iterator[Any]:
     """
     # Imported lazily so module import doesn't trigger env reads.
     from fastapi.testclient import TestClient
-
     from srt_backend.app import api
 
     with TestClient(api) as c:
@@ -123,7 +131,3 @@ def patched_worker(client: Any, fake_worker: FakeWorkerClient) -> FakeWorkerClie
     ctx = client.app.state.job_ctx
     ctx.worker_client = fake_worker  # type: ignore[method-assign]
     return fake_worker
-
-
-# Quiet ruff on unused asyncio import — kept for tests that drive the loop.
-_ = asyncio

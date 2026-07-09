@@ -5,6 +5,10 @@
 //   slice 3: results?: [{ lang, download_url }]   // hit /api/jobs/{id}/download
 // The endpoint prefix also renamed: /api/translate* → /api/jobs*.
 
+import { apiFetch } from "./lib.ts";
+
+export { errMessage } from "./lib.ts";
+
 export interface Cue {
   index: number;
   start: string;
@@ -86,60 +90,24 @@ export interface CheckoutResponse {
   url: string;
 }
 
-// FastAPI HTTPException detail can be a string or a list of field errors;
-// normalise both into a single message.
-function extractDetail(maybe: unknown, fallback: string): string {
-  if (typeof maybe === "string") return maybe;
-  if (Array.isArray(maybe) && maybe.length > 0) {
-    const first = maybe[0];
-    if (first && typeof first === "object" && "msg" in first) {
-      return String((first as { msg: unknown }).msg);
-    }
-  }
-  return fallback;
-}
-
-async function readError(resp: Response, fallback: string): Promise<Error> {
-  let body: unknown = undefined;
-  try {
-    body = await resp.json();
-  } catch {
-    // fall through with generic message
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? extractDetail((body as { detail: unknown }).detail, fallback)
-      : fallback;
-  return new Error(detail);
-}
-
-export async function parseSrt(file: File): Promise<ParseResponse> {
-  const form = new FormData();
-  form.append("file", file);
-  const resp = await fetch("/api/srt/parse", { method: "POST", body: form });
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as ParseResponse;
-}
-
 export async function prepareSrt(file: File): Promise<PrepareResponse> {
   const form = new FormData();
   form.append("file", file);
-  const resp = await fetch("/api/srt/prepare", { method: "POST", body: form });
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as PrepareResponse;
+  return apiFetch<PrepareResponse>("/api/srt/prepare", {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function getWorkers(): Promise<WorkerInfo[]> {
-  const resp = await fetch("/api/workers");
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  const body = (await resp.json()) as { workers: WorkerInfo[] };
+  const body = await apiFetch<{ workers: WorkerInfo[] }>("/api/workers");
   return body.workers;
 }
 
 export async function getLanguages(worker: string): Promise<LanguageInfo[]> {
-  const resp = await fetch(`/api/languages?worker=${encodeURIComponent(worker)}`);
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  const body = (await resp.json()) as { languages: LanguageInfo[] };
+  const body = await apiFetch<{ languages: LanguageInfo[] }>(
+    `/api/languages?worker=${encodeURIComponent(worker)}`,
+  );
   return body.languages;
 }
 
@@ -149,7 +117,7 @@ export async function startJob(params: {
   targets: string[];
   worker: string;
 }): Promise<{ job_id: string }> {
-  const resp = await fetch("/api/jobs", {
+  return apiFetch<{ job_id: string }>("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -159,27 +127,19 @@ export async function startJob(params: {
       worker: params.worker,
     }),
   });
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as { job_id: string };
 }
 
 export async function pollJob(jobId: string): Promise<JobStatusResponse> {
-  const resp = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as JobStatusResponse;
+  return apiFetch<JobStatusResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
 }
 
 export async function listJobs(): Promise<JobSummary[]> {
-  const resp = await fetch("/api/jobs");
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  const body = (await resp.json()) as { jobs: JobSummary[] };
+  const body = await apiFetch<{ jobs: JobSummary[] }>("/api/jobs");
   return body.jobs;
 }
 
 export async function listTables(): Promise<TableInfo[]> {
-  const resp = await fetch("/api/db/tables");
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as TableInfo[];
+  return apiFetch<TableInfo[]>("/api/db/tables");
 }
 
 export async function getTableRows(
@@ -191,34 +151,32 @@ export async function getTableRows(
     page: String(page),
     size: String(size),
   });
-  const resp = await fetch(`/api/db/tables/${encodeURIComponent(name)}?${params}`);
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as TablePage;
+  return apiFetch<TablePage>(
+    `/api/db/tables/${encodeURIComponent(name)}?${params}`,
+  );
 }
 
 export async function clearAllData(): Promise<{ cleared: number }> {
-  const resp = await fetch("/api/db/clear", { method: "POST" });
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
-  return (await resp.json()) as { cleared: number };
+  return apiFetch<{ cleared: number }>("/api/db/clear", { method: "POST" });
 }
 
 export async function getMe(): Promise<Me | null> {
   const resp = await fetch("/api/auth/me");
   if (resp.status === 401) return null;
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return (await resp.json()) as Me;
 }
 
 export async function logout(): Promise<void> {
   const resp = await fetch("/api/auth/logout", { method: "POST" });
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
 }
 
 export async function startCheckout(): Promise<CheckoutResponse> {
   const resp = await fetch("/api/billing/checkout", { method: "POST" });
   if (resp.status === 401) throw new Error("Log in before upgrading");
   if (resp.status === 402) throw new Error("Upgrade is required");
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return (await resp.json()) as CheckoutResponse;
 }
 
@@ -231,7 +189,7 @@ export async function paidCheck(): Promise<number> {
   if (resp.status === 200 || resp.status === 401 || resp.status === 402) {
     return resp.status;
   }
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return resp.status;
 }
 
@@ -239,6 +197,6 @@ export async function paidCheck(): Promise<number> {
 // preview or download — the poll response no longer carries the text inline.
 export async function fetchJobOutput(downloadUrl: string): Promise<string> {
   const resp = await fetch(downloadUrl);
-  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return await resp.text();
 }

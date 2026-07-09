@@ -6,9 +6,6 @@ import asyncio
 from typing import Any
 
 import pytest
-from pkg_srt_services.api import Cue
-from sqlmodel import Session, select
-
 from pkg_job_orch.api import (
     DEV_USER_ID,
     EnqueueError,
@@ -26,6 +23,8 @@ from pkg_job_orch.api import (
     seed_dev_user,
     worker_loop,
 )
+from pkg_srt_services.api import Cue
+from sqlmodel import Session, select
 
 
 def _cues() -> list[Cue]:

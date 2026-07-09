@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { pollJob, type JobResult } from "./api.ts";
+import { pollJob, type JobResult, type JobStatusResponse } from "./api.ts";
+import { usePoll } from "./hooks.ts";
 
 interface Props {
   fileName: string;
@@ -12,7 +13,9 @@ interface Props {
   onError: (message: string) => void;
 }
 
-const POLL_INTERVAL_MS = 1500;
+function isTerminal(body: JobStatusResponse) {
+  return body.status === "done" || body.status === "failed";
+}
 
 export function ProcessingScreen({
   fileName,
@@ -23,51 +26,39 @@ export function ProcessingScreen({
   onDone,
   onError,
 }: Props) {
+  const { result, error, terminal } = usePoll(() => pollJob(jobId), isTerminal);
   const [progress, setProgress] = useState(0);
   const [statusLabel, setStatusLabel] = useState("starting…");
-  const finishedRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    async function tick() {
-      try {
-        const body = await pollJob(jobId);
-        if (cancelled || finishedRef.current) return;
-        setProgress(body.progress);
-        if (body.status === "done" && body.results) {
-          finishedRef.current = true;
-          setStatusLabel("done");
-          setProgress(1);
-          onDone(body.results);
-          return;
-        }
-        if (body.status === "failed") {
-          finishedRef.current = true;
-          setStatusLabel("failed");
-          onError(body.error ?? "translation failed");
-          return;
-        }
+    if (result) {
+      setProgress(result.progress);
+      if (result.status === "done") {
+        setStatusLabel("done");
+        setProgress(1);
+      } else if (result.status === "failed") {
+        setStatusLabel("failed");
+      } else {
         setStatusLabel(
-          body.status === "processing"
-            ? `translating · ${(body.progress * 100).toFixed(0)}%`
+          result.status === "processing"
+            ? `translating · ${(result.progress * 100).toFixed(0)}%`
             : "queued…",
         );
-        timer = setTimeout(tick, POLL_INTERVAL_MS);
-      } catch (e: unknown) {
-        if (cancelled || finishedRef.current) return;
-        finishedRef.current = true;
-        onError(e instanceof Error ? e.message : "polling failed");
       }
     }
+  }, [result]);
 
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [jobId, onDone, onError]);
+  // Fire the terminal callback exactly once.
+  useEffect(() => {
+    if (!terminal) return;
+    if (error) {
+      onError(error);
+    } else if (result?.status === "done" && result.results) {
+      onDone(result.results);
+    } else if (result?.status === "failed") {
+      onError(result.error ?? "translation failed");
+    }
+  }, [terminal, error, result, onDone, onError]);
 
   const pct = Math.round(progress * 100);
 
@@ -82,7 +73,14 @@ export function ProcessingScreen({
         </p>
       </div>
       <div className="space-y-1">
-        <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
+        <div
+          className="h-3 rounded-full bg-slate-200 overflow-hidden"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct}
+          aria-label="translation progress"
+        >
           <div
             className="h-full bg-indigo-600 transition-[width] duration-300 ease-out"
             style={{ width: `${pct}%` }}

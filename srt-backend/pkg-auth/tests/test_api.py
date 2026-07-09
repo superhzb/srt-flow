@@ -1,13 +1,38 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedFunction=false
 
 import importlib
+import uuid
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from pkg_auth.api import __all__ as public_names
 from pkg_auth.api import router
+from pkg_auth.models import Tier, User
+
+
+class _FakeUserStore:
+    """In-process UserStore for unit tests (no DB). Mirrors the sticky-paid
+    upsert semantics of the real AppStore so tier behaviour is exercised."""
+
+    def __init__(self) -> None:
+        self._by_sub: dict[str, User] = {}
+
+    async def get_by_sub(self, google_sub: str) -> User | None:
+        return self._by_sub.get(google_sub)
+
+    async def upsert(self, *, google_sub: str, email: str, tier: Tier = "free") -> User:
+        existing = self._by_sub.get(google_sub)
+        if existing is not None:
+            existing.email = email
+            existing.tier = "paid" if existing.tier == "paid" and tier == "free" else tier
+            return existing
+        user = User(id=uuid.uuid4().hex, google_sub=google_sub, email=email, tier=tier)
+        self._by_sub[google_sub] = user
+        return user
+
+    async def get_dev_user(self, *, email: str, tier: Tier) -> User:
+        return await self.upsert(google_sub=f"dev:{email}", email=email, tier=tier)
 
 
 def test_public_api_all_names_are_resolvable() -> None:
@@ -24,6 +49,13 @@ def _app() -> FastAPI:
 
 @pytest.fixture(autouse=True)
 def _auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reset the shared user store per test: dev-mode endpoints upsert the dev
+    # user into the module-global store, and sticky-paid (#9) would otherwise
+    # leak a paid tier from a prior test into this one.
+    from pkg_auth.state import set_user_store
+
+    set_user_store(_FakeUserStore())
+
     monkeypatch.setenv("ENV", "dev")
     monkeypatch.setenv("AUTH_MODE", "google")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "client-id")

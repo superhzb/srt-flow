@@ -5,6 +5,8 @@ import logging
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
+from .config import TranslationConfig
+
 logger = logging.getLogger(__name__)
 
 _model: Any | None = None
@@ -27,17 +29,12 @@ type _Load = Callable[[str], tuple[object, object]]
 type _MakeSampler = Callable[[float], object]
 
 
-def ensure_model_available(model_path: str) -> None:
-    _load(model_path)
+def ensure_model_available(config: TranslationConfig) -> None:
+    _load(config.model_path)
 
 
-def generate_text(
-    prompt: str,
-    model_path: str,
-    max_tokens: int = 2048,
-    temperature: float = 0.0,
-) -> str:
-    _load(model_path)
+def generate_text(prompt: str, config: TranslationConfig) -> str:
+    _load(config.model_path)
 
     try:
         generate = cast(_Generate, _load_symbol("mlx_lm", "generate"))
@@ -60,8 +57,8 @@ def generate_text(
             _model,
             _tokenizer,
             prompt=formatted,
-            max_tokens=max_tokens,
-            sampler=make_sampler(temperature),
+            max_tokens=config.max_tokens,
+            sampler=make_sampler(config.temperature),
             verbose=False,
         )
     except RuntimeError:

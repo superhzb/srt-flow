@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-
 from pkg_srt_services.api import Cue, ParseError, parse, serialize
 
 SIMPLE = """1
