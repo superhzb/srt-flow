@@ -14,9 +14,11 @@ dependencies = [
   "httpx2>=2.5.0",
   "lingua-language-detector>=2.2.0",
   "pkg-auth",
+  "pkg-billing",
   "pkg-file-upload",
   "pkg-job-orch",
   "pkg-srt-services",
+  "python-dotenv>=1.0.0",
   "python-multipart>=0.0.20",
   "uvicorn[standard]>=0.32.0",
 ]
@@ -32,6 +34,7 @@ dev = [
 
 [tool.uv.sources]
 pkg-auth = { path = "pkg-auth" }
+pkg-billing = { path = "pkg-billing" }
 pkg-file-upload = { path = "pkg-file-upload" }
 pkg-job-orch = { path = "pkg-job-orch" }
 pkg-srt-services = { path = "pkg-srt-services" }

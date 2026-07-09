@@ -18,7 +18,10 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
+from pkg_auth.api import set_user_store
+from pkg_billing.api import set_billing_store
 from pkg_file_upload.api import LocalStorage
 from pkg_job_orch.api import (
     DEV_USER_ID,
@@ -34,12 +37,14 @@ from pkg_job_orch.api import (
 )
 from sqlmodel import Session
 
+from srt_backend.app_store import AppStore
 from srt_backend.routes_srt import router as srt_router
 from srt_backend.routes_workers import router as workers_router
 
 __all__ = ["api"]
 
 logger = logging.getLogger(__name__)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 def _build_ctx() -> JobContext:
@@ -69,6 +74,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx = _build_ctx()
     app.state.job_ctx = ctx
     app.state.worker_stop = asyncio.Event()
+    app_store = AppStore()
+    app.state.app_store = app_store
+    set_user_store(app_store)
+    set_billing_store(app_store)
 
     database_url = os.environ.get("DATABASE_URL")
     run_migrations(database_url)
@@ -105,11 +114,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def _create_app() -> FastAPI:
     from pkg_auth.api import router as auth_router
+    from pkg_billing.api import router as billing_router
     from pkg_job_orch.api import db_router
     from pkg_job_orch.api import router as jobs_router
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
     app.include_router(auth_router, prefix="/api")
+    app.include_router(billing_router, prefix="/api")
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")

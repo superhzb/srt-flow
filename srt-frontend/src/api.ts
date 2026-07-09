@@ -82,6 +82,10 @@ export interface Me {
   tier: "free" | "paid";
 }
 
+export interface CheckoutResponse {
+  url: string;
+}
+
 // FastAPI HTTPException detail can be a string or a list of field errors;
 // normalise both into a single message.
 function extractDetail(maybe: unknown, fallback: string): string {
@@ -208,6 +212,14 @@ export async function getMe(): Promise<Me | null> {
 export async function logout(): Promise<void> {
   const resp = await fetch("/api/auth/logout", { method: "POST" });
   if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+}
+
+export async function startCheckout(): Promise<CheckoutResponse> {
+  const resp = await fetch("/api/billing/checkout", { method: "POST" });
+  if (resp.status === 401) throw new Error("Log in before upgrading");
+  if (resp.status === 402) throw new Error("Upgrade is required");
+  if (!resp.ok) throw await readError(resp, `request failed (${resp.status})`);
+  return (await resp.json()) as CheckoutResponse;
 }
 
 export function googleLoginUrl(): string {

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   prepareSrt,
@@ -7,6 +7,7 @@ import {
   type PrepareResponse,
 } from "./api.ts";
 import { AuthScreen } from "./AuthScreen.tsx";
+import { BillingScreen } from "./BillingScreen.tsx";
 import { CuesView } from "./CuesView.tsx";
 import { ConfigureScreen } from "./ConfigureScreen.tsx";
 import { DbScreen } from "./DbScreen.tsx";
@@ -47,7 +48,7 @@ type State =
       results: JobResult[];
     };
 
-type Tab = "upload" | "jobs" | "db" | "auth";
+type Tab = "upload" | "jobs" | "db" | "auth" | "billing";
 
 const ACCEPT = ".srt";
 
@@ -61,8 +62,20 @@ function validateFile(file: File): string | null {
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [tab, setTab] = useState<Tab>("upload");
+  const [checkoutStatus, setCheckoutStatus] = useState<"success" | "cancel" | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const checkout = url.searchParams.get("checkout");
+    if (checkout !== "success" && checkout !== "cancel") return;
+
+    setTab("billing");
+    setCheckoutStatus(checkout);
+    url.searchParams.delete("checkout");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   async function submit(file: File) {
     const err = validateFile(file);
@@ -187,6 +200,9 @@ export default function App() {
           <TabButton active={tab === "auth"} onClick={() => setTab("auth")}>
             Auth
           </TabButton>
+          <TabButton active={tab === "billing"} onClick={() => setTab("billing")}>
+            Billing
+          </TabButton>
         </nav>
 
         {tab === "jobs" && <JobsScreen />}
@@ -194,6 +210,13 @@ export default function App() {
         {tab === "db" && <DbScreen />}
 
         {tab === "auth" && <AuthScreen />}
+
+        {tab === "billing" && (
+          <BillingScreen
+            checkoutStatus={checkoutStatus}
+            onCheckoutStatusHandled={() => setCheckoutStatus(null)}
+          />
+        )}
 
         {tab === "upload" && showUpload && (
           <>
