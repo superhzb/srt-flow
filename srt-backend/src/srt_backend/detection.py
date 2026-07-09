@@ -6,6 +6,7 @@ Simplified/Traditional character heuristic to pick between ``zh`` and
 
 Pure (no FastAPI, no I/O) so it is testable in isolation.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -21,14 +22,13 @@ __all__ = ["Detection", "detect", "SUPPORTED_LANGS"]
 
 # hanzidentifier ships no type stubs; treat its one used helper as `str -> bool`.
 _is_traditional: Callable[[str], bool] = cast(
-    "Callable[[str], bool]", hanzidentifier.is_traditional  # type: ignore[no-any-return]
+    "Callable[[str], bool]",
+    hanzidentifier.is_traditional,  # type: ignore[no-any-return]
 )
 
 # Worker-supported target/source codes (kept in sync with both workers'
 # languages.yaml). Detection only ever returns codes from this set or None.
-SUPPORTED_LANGS: frozenset[str] = frozenset(
-    {"en", "es", "zh", "zh-TW", "fr", "de", "ja", "ko"}
-)
+SUPPORTED_LANGS: frozenset[str] = frozenset({"en", "es", "zh", "zh-TW", "fr", "de", "ja", "ko"})
 
 _CONFIDENCE_FLOOR: float = 0.5
 _SAMPLE_SIZE: int = 40
@@ -55,6 +55,7 @@ _LINGUA_TO_CODE: dict[Language, str] = {
     Language.KOREAN: "ko",
     Language.CHINESE: "zh",
 }
+
 
 # Module-level detector: lingua's builder is expensive to construct, the
 # built detector is stateless and safe to reuse. Built lazily on first use

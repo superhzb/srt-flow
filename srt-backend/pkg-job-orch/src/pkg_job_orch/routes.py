@@ -55,12 +55,8 @@ async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]
     except EnqueueError as exc:
         # Unknown worker (typed cause) → 404; bad cues/targets → 400.
         if isinstance(exc.__cause__, WorkerResolutionError):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"job_id": result.job_id}
 
 
@@ -70,9 +66,7 @@ async def list_jobs(request: Request) -> dict[str, Any]:
     ctx = request.app.state.job_ctx
     with session_scope() as session:
         stmt = (
-            select(Job)
-            .where(Job.user_id == ctx.dev_user_id)
-            .order_by(col(Job.created_at).desc())
+            select(Job).where(Job.user_id == ctx.dev_user_id).order_by(col(Job.created_at).desc())
         )
         jobs = session.exec(stmt).all()
         # Build the response inside the session — Job attrs are only
@@ -87,9 +81,7 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
     with session_scope() as session:
         job = session.get(Job, job_id)
         if job is None or job.user_id != ctx.dev_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="job not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
         out: dict[str, Any] = {
             "id": job.id,
             "status": job.status,
@@ -121,9 +113,7 @@ async def download_job(
     with session_scope() as session:
         job = session.get(Job, job_id)
         if job is None or job.user_id != ctx.dev_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="job not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
         if job.status != "done":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

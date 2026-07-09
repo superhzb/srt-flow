@@ -31,9 +31,7 @@ def _wait_for_status(
     return body
 
 
-def test_create_job_returns_202_and_inserts_pending(
-    client: Any, fake_worker: Any
-) -> None:
+def test_create_job_returns_202_and_inserts_pending(client: Any, fake_worker: Any) -> None:
     client.app.state.job_ctx.worker_client = fake_worker  # type: ignore[method-assign]
     resp = client.post(
         "/api/jobs",
@@ -54,9 +52,7 @@ def test_create_job_returns_202_and_inserts_pending(
     assert status["status"] in {"pending", "processing", "done"}
 
 
-def test_full_flow_processes_to_done_with_download(
-    client: Any, patched_worker: Any
-) -> None:
+def test_full_flow_processes_to_done_with_download(client: Any, patched_worker: Any) -> None:
     resp = client.post(
         "/api/jobs",
         json={
@@ -75,9 +71,7 @@ def test_full_flow_processes_to_done_with_download(
 
     # Result shape is the slice-3 contract: {lang, download_url}, no inline srt.
     results = body["results"]
-    assert results == [
-        {"lang": "fr", "download_url": f"/api/jobs/{job_id}/download?lang=fr"}
-    ]
+    assert results == [{"lang": "fr", "download_url": f"/api/jobs/{job_id}/download?lang=fr"}]
 
     # Download streams the file.
     dl = client.get(results[0]["download_url"])
@@ -116,8 +110,9 @@ def test_list_jobs_returns_dev_user_history(client: Any, patched_worker: Any) ->
     assert jobs[0]["created_at"] >= jobs[1]["created_at"]
     # Each list item carries the documented summary fields.
     for j in jobs:
-        assert {"id", "status", "worker", "src_lang", "tgt_langs", "progress",
-                "created_at"} <= set(j)
+        assert {"id", "status", "worker", "src_lang", "tgt_langs", "progress", "created_at"} <= set(
+            j
+        )
 
 
 def test_get_unknown_job_404(client: Any) -> None:

@@ -5,7 +5,7 @@ had NO direct test — ``FakeWorkerClient`` bypassed it entirely. These tests
 drive the real HTTP path via an in-process ASGI app over ``httpx.ASGITransport``
 (no socket), covering: progress-denominator folding, the terminal ``result``
 event, ``error`` events, non-2xx open, and a stream that ends without a
-terminal event (REFACTOR_PLAN.md Phase 6 #26).
+terminal event.
 """
 
 from __future__ import annotations

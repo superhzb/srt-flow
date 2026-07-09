@@ -38,10 +38,7 @@ def test_parse_ok() -> None:
 
 
 def test_parse_utf8_bytes_preserved() -> None:
-    body = (
-        b"1\n00:00:01,000 --> 00:00:02,000\n"
-        b"\xc3\x9cn\xc3\xafcoded\xe2\x80\x94emdash\n\n"
-    )
+    body = b"1\n00:00:01,000 --> 00:00:02,000\n\xc3\x9cn\xc3\xafcoded\xe2\x80\x94emdash\n\n"
     resp = client.post("/api/srt/parse", files=_files(body=body))
     assert resp.status_code == 200
     assert resp.json()["cues"][0]["text"] == "Ünïcoded—emdash"

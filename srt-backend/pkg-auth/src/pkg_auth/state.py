@@ -2,9 +2,9 @@
 
 The store has no built-in default — the app lifespan wires the real
 DB-backed ``AppStore`` via :func:`set_user_store` at composition root
-(REFACTOR_PLAN.md Phase 3 #9: one store, DB-backed). Accessing the store
-before it is wired raises loudly instead of silently falling back to a
-shadow in-memory implementation.
+so there is one DB-backed store. Accessing the store before it is wired
+raises loudly instead of silently falling back to a shadow in-memory
+implementation.
 """
 
 from __future__ import annotations

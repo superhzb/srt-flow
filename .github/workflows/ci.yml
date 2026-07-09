@@ -20,6 +20,7 @@ jobs:
         with:
           enable-cache: true
       - run: uvx ruff check .
+      - run: uvx ruff format --check .
 
   backend:
     runs-on: ubuntu-latest

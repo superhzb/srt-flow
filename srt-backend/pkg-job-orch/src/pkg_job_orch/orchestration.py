@@ -198,9 +198,7 @@ def enqueue(
 
     job_id = uuid.uuid4().hex
     input_srt = serialize(cues)
-    ctx.storage.save(
-        ctx.dev_user_id, job_id, "input.srt", input_srt.encode("utf-8")
-    )
+    ctx.storage.save(ctx.dev_user_id, job_id, "input.srt", input_srt.encode("utf-8"))
 
     job = Job(
         id=job_id,
@@ -253,9 +251,7 @@ async def worker_loop(ctx: JobContext, stop_event: asyncio.Event) -> None:
     logger.info("worker_loop started")
     while not stop_event.is_set():
         try:
-            job_id = await asyncio.wait_for(
-                ctx.queue.get(), timeout=_QUEUE_POLL_TIMEOUT
-            )
+            job_id = await asyncio.wait_for(ctx.queue.get(), timeout=_QUEUE_POLL_TIMEOUT)
         except TimeoutError:
             continue
         try:
@@ -277,9 +273,7 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
             logger.warning("worker_loop: queue held unknown job %s; dropping", job_id)
             return
         if job.status != "pending":
-            logger.info(
-                "worker_loop: job %s in status %s — skipping", job_id, job.status
-            )
+            logger.info("worker_loop: job %s in status %s — skipping", job_id, job.status)
             return
         job.status = "processing"
         session.add(job)
@@ -389,9 +383,7 @@ def _mark_failed(job_id: str, message: str) -> None:
         logger.exception("worker_loop: failed to mark job %s as failed", job_id)
 
 
-def _build_outputs(
-    cues: list[Cue], outcome: StreamOutcome
-) -> dict[str, str]:
+def _build_outputs(cues: list[Cue], outcome: StreamOutcome) -> dict[str, str]:
     """Per-target SRT: clone cues, swap text with translated text by id."""
     by_id: dict[int, dict[str, Any]] = {
         int(seg["id"]): seg for seg in outcome.segments if "id" in seg

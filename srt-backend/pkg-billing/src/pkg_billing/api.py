@@ -1,9 +1,9 @@
 """Public API for pkg_billing.
 
 The router lives here; configuration, HMAC signing, and the store are split
-into sibling modules (``config``, ``signing``, ``store``) per REFACTOR_PLAN.md
-Phase 3 #14. This module re-exports the public surface so callers keep
-importing from ``pkg_billing.api``.
+into sibling modules (``config``, ``signing``, ``store``). This module
+re-exports the public surface so callers keep importing from
+``pkg_billing.api``.
 """
 
 from __future__ import annotations

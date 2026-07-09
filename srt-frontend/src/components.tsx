@@ -1,5 +1,4 @@
-// Shared UI components extracted from the copy-pasted screen fragments
-// (REFACTOR_PLAN.md Phase 5 #21). Each replaces a duplication noted in the plan.
+// Shared UI components extracted from repeated screen fragments.
 
 import { useState } from "react";
 

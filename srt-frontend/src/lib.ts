@@ -1,6 +1,5 @@
 // Shared client utilities: error normalisation + a fetch wrapper that
-// centralises the repeated `fetch → if(!ok) throw readError → json` pattern
-// (REFACTOR_PLAN.md Phase 5 #20).
+// centralises the repeated `fetch -> if(!ok) throw readError -> json` pattern.
 
 // FastAPI HTTPException detail can be a string or a list of field errors;
 // normalise both into a single message.

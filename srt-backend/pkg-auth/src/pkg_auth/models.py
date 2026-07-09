@@ -1,12 +1,10 @@
 """Auth store interface.
 
-The canonical ``User`` row lives in ``pkg_job_orch`` (the DB owner per
-REFACTOR_PLAN.md Phase 0 #2). It is re-imported here so the auth
-``UserStore`` protocol has a concrete type without duplicating the model
-(resolves the "two divergent User identity models" landmine). The
-in-memory ``User`` dataclass + ``InMemoryUserStore`` that used to live
-here were deleted in Phase 3 #9 — the DB-backed ``AppStore`` is the sole
-store implementation.
+The canonical ``User`` row lives in ``pkg_job_orch`` because job orchestration
+owns the app database. It is re-imported here so the auth ``UserStore``
+protocol has a concrete type without duplicating the model. The in-memory
+``User`` dataclass + ``InMemoryUserStore`` that used to live here were deleted;
+the DB-backed ``AppStore`` is the sole store implementation.
 """
 
 from __future__ import annotations

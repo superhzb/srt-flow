@@ -65,10 +65,7 @@ def _row_dict(row: SQLModel, columns: list[str]) -> dict[str, JsonValue]:
 @router.get("/tables")
 async def list_tables() -> list[dict[str, int | str]]:
     with session_scope() as session:
-        return [
-            {"name": name, "count": _count(session, table)}
-            for name, table in TABLES.items()
-        ]
+        return [{"name": name, "count": _count(session, table)} for name, table in TABLES.items()]
 
 
 @router.get("/tables/{name}")

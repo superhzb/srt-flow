@@ -87,8 +87,7 @@ def test_processing_job_resumes_after_restart(
                     "source_lang": source_lang,
                     "targets": targets,
                     "segments": [
-                        {"id": seg["id"],
-                         **{t: f"[{t}] {seg[source_lang]}" for t in targets}}
+                        {"id": seg["id"], **{t: f"[{t}] {seg[source_lang]}" for t in targets}}
                         for seg in segments
                     ],
                 }
@@ -134,8 +133,7 @@ def test_done_job_survives_restart(monkeypatch: pytest.MonkeyPatch) -> None:
                     "source_lang": source_lang,
                     "targets": targets,
                     "segments": [
-                        {"id": seg["id"],
-                         **{t: f"[{t}] {seg[source_lang]}" for t in targets}}
+                        {"id": seg["id"], **{t: f"[{t}] {seg[source_lang]}" for t in targets}}
                         for seg in segments
                     ],
                 }

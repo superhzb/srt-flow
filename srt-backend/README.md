@@ -1,7 +1,8 @@
 # srt-backend
 
 FastAPI mono-app. Imports `pkg-*` libraries and mounts their routers under
-`/api`. Slice 1 only wires `pkg-srt-services` and the parse route.
+`/api`. Current app routes cover SRT parsing/preparation, worker discovery,
+translation jobs, auth, billing, and artifact download.
 
 ## Dev
 
@@ -21,9 +22,16 @@ uv run uvicorn srt_backend.app:api --reload --port 5731
 
 ```
 src/srt_backend/
-  app.py        # FastAPI() instance, mounts pkg routers under /api
-  routes_srt.py # POST /api/srt/parse
+  app.py             # FastAPI() instance, lifespan, package router mounts
+  app_store.py       # DB-backed composition store
+  routes_srt.py      # POST /api/srt/parse and /api/srt/prepare
+  routes_workers.py  # worker and language discovery
 tests/
   test_parse_route.py
+  test_prepare_route.py
+  test_workers_route.py
 sample.srt
 ```
+
+Backend package libraries live under `pkg-*`; package-specific agent rules are
+in each package's `AGENTS.md` where present.

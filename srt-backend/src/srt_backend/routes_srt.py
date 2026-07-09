@@ -48,9 +48,7 @@ def _parse_or_400(payload: str) -> list[Cue]:
     try:
         return parse(payload)
     except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/parse", status_code=status.HTTP_200_OK)

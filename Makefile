@@ -5,7 +5,7 @@
 # Ports (uncommon block, avoids 3000/5173/8000/8080 clashes):
 #   frontend 5730 · backend 5731 · worker 5732 · cloud-worker 5733
 
-.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install
+.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install lint typecheck test build check
 
 # One-line local stack.
 dev:
@@ -50,6 +50,32 @@ cloud-worker:
 
 install:
 	cd srt-backend && uv sync
+	cd pkg-translator && uv sync
 	cd srt-mlx-worker && uv sync
 	cd srt-cloud-worker && uv sync
 	cd srt-frontend && npm install
+
+lint:
+	uvx ruff check .
+	uvx ruff format --check .
+	cd srt-frontend && npm run format:check
+	cd srt-frontend && npm run lint
+
+typecheck:
+	cd srt-backend && uv run pyright
+	cd pkg-translator && uv run pyright
+	cd srt-cloud-worker && uv run pyright
+	cd srt-mlx-worker && uv run pyright
+	cd srt-frontend && npm run typecheck
+
+test:
+	cd srt-backend && uv run pytest -q
+	cd pkg-translator && uv run pytest -q
+	cd srt-cloud-worker && uv run pytest -q -m "not e2e"
+	cd srt-mlx-worker && uv run pytest -q -m "not e2e"
+	cd srt-frontend && npm run test
+
+build:
+	cd srt-frontend && npm run build
+
+check: lint typecheck test build

@@ -33,10 +33,7 @@ def test_list_workers_reports_health_per_worker(
     del workers_env
 
     async def fake_probe(infos: Any) -> list[WorkerStatus]:
-        return [
-            WorkerStatus(id=i.id, label=i.label, healthy=(i.id == "cloud"))
-            for i in infos
-        ]
+        return [WorkerStatus(id=i.id, label=i.label, healthy=(i.id == "cloud")) for i in infos]
 
     monkeypatch.setattr(routes_workers, "probe_workers", fake_probe)
 

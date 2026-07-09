@@ -89,11 +89,14 @@ def test_paid_tier_survives_restart(
             "client_reference_id"
         ][0]
         event = _paid_event("evt_restart_paid", "cs_restart_paid", signed_ref)
-        assert client.post(
-            "/api/billing/webhook",
-            content=_body(event),
-            headers=_headers(event),
-        ).status_code == 200
+        assert (
+            client.post(
+                "/api/billing/webhook",
+                content=_body(event),
+                headers=_headers(event),
+            ).status_code
+            == 200
+        )
 
     with TestClient(api) as restarted:
         me = restarted.get("/api/auth/me")
@@ -118,19 +121,25 @@ def test_duplicate_webhook_across_restart_is_ignored(
             "client_reference_id"
         ][0]
         event = _paid_event("evt_once_restart", "cs_once_restart", signed_ref)
-        assert client.post(
-            "/api/billing/webhook",
-            content=_body(event),
-            headers=_headers(event),
-        ).status_code == 200
+        assert (
+            client.post(
+                "/api/billing/webhook",
+                content=_body(event),
+                headers=_headers(event),
+            ).status_code
+            == 200
+        )
 
     with TestClient(api) as restarted:
         event = _paid_event("evt_once_restart", "cs_once_restart", signed_ref)
-        assert restarted.post(
-            "/api/billing/webhook",
-            content=_body(event),
-            headers=_headers(event),
-        ).status_code == 200
+        assert (
+            restarted.post(
+                "/api/billing/webhook",
+                content=_body(event),
+                headers=_headers(event),
+            ).status_code
+            == 200
+        )
         assert restarted.get("/api/auth/me").json() == {
             "email": "dev@example.test",
             "tier": "paid",

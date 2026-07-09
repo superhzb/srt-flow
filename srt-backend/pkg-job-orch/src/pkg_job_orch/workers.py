@@ -73,16 +73,12 @@ def workers_env(raw: str | None = None) -> list[WorkerInfo]:
         if not token:
             continue
         if "=" not in token:
-            raise WorkerResolutionError(
-                f"invalid WORKERS entry {token!r}: expected 'id=url'"
-            )
+            raise WorkerResolutionError(f"invalid WORKERS entry {token!r}: expected 'id=url'")
         wid, url = token.split("=", 1)
         wid = wid.strip()
         url = url.strip()
         if not wid or not url:
-            raise WorkerResolutionError(
-                f"invalid WORKERS entry {token!r}: empty id or url"
-            )
+            raise WorkerResolutionError(f"invalid WORKERS entry {token!r}: empty id or url")
         out.append(WorkerInfo(id=wid, base_url=url.rstrip("/")))
     return out
 

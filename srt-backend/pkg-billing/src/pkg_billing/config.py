@@ -2,7 +2,7 @@
 
 Two types with distinct roles:
 - ``BillingSettings`` — env-loaded via pydantic-settings (one consistent
-  loading mechanism, converged with pkg-auth per REFACTOR_PLAN.md Phase 3 #12).
+  loading mechanism, converged with pkg-auth).
   Loaded once and ``lru_cache``-d so requests don't re-parse env (#13);
   ``reset_settings_cache`` lets tests re-read after monkeypatching.
 - ``BillingConfig`` — the validated, immutable value object the router uses.

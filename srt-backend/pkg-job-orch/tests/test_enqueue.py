@@ -46,9 +46,7 @@ def test_seed_dev_user_idempotent(temp_db: str) -> None:
     assert len(rows) == 1
 
 
-def test_enqueue_persists_pending_and_input(
-    temp_db: str, job_ctx: JobContext
-) -> None:
+def test_enqueue_persists_pending_and_input(temp_db: str, job_ctx: JobContext) -> None:
     with Session(get_engine()) as s:
         seed_dev_user(s)
         s.commit()
@@ -100,9 +98,7 @@ def test_enqueue_rejects_unknown_worker(temp_db: str, job_ctx: JobContext) -> No
             )
 
 
-def test_enqueue_dedupes_and_drops_source(
-    temp_db: str, job_ctx: JobContext
-) -> None:
+def test_enqueue_dedupes_and_drops_source(temp_db: str, job_ctx: JobContext) -> None:
     with Session(get_engine()) as s:
         seed_dev_user(s)
         s.commit()
@@ -126,20 +122,33 @@ def test_enqueue_rejects_empty_targets(temp_db: str, job_ctx: JobContext) -> Non
         s.commit()
     with Session(get_engine()) as s:
         with pytest.raises(EnqueueError):
-            enqueue(
-                job_ctx, s, cues=_cues(), source_lang="en", targets=[], worker_id="mlx"
-            )
+            enqueue(job_ctx, s, cues=_cues(), source_lang="en", targets=[], worker_id="mlx")
 
 
 def test_recover_resets_processing_to_pending(temp_db: str) -> None:
     with Session(get_engine()) as s:
         seed_dev_user(s)
-        s.add(Job(id="p1", user_id=DEV_USER_ID, worker="mlx", src_lang="en",
-                  status="processing", progress=0.4))
-        s.add(Job(id="p2", user_id=DEV_USER_ID, worker="mlx", src_lang="en",
-                  status="pending"))
-        s.add(Job(id="d1", user_id=DEV_USER_ID, worker="mlx", src_lang="en",
-                  status="done", progress=1.0))
+        s.add(
+            Job(
+                id="p1",
+                user_id=DEV_USER_ID,
+                worker="mlx",
+                src_lang="en",
+                status="processing",
+                progress=0.4,
+            )
+        )
+        s.add(Job(id="p2", user_id=DEV_USER_ID, worker="mlx", src_lang="en", status="pending"))
+        s.add(
+            Job(
+                id="d1",
+                user_id=DEV_USER_ID,
+                worker="mlx",
+                src_lang="en",
+                status="done",
+                progress=1.0,
+            )
+        )
         s.commit()
     with Session(get_engine()) as s:
         reset_count = recover_jobs(s)
@@ -219,9 +228,7 @@ async def test_worker_loop_processes_job_to_done(
     assert call["segments"] == [{"id": 1, "en": "Hello"}]
 
 
-async def test_worker_loop_marks_failed_on_worker_error(
-    temp_db: str, job_ctx: JobContext
-) -> None:
+async def test_worker_loop_marks_failed_on_worker_error(temp_db: str, job_ctx: JobContext) -> None:
     job_ctx.worker_client = _RaisingClient(WorkerStreamError("boom"))  # type: ignore[method-assign]
     with Session(get_engine()) as s:
         seed_dev_user(s)

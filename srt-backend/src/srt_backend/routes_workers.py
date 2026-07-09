@@ -23,11 +23,7 @@ router = APIRouter(tags=["workers"])
 async def list_workers() -> dict[str, object]:
     infos = workers_env()
     statuses = await probe_workers(infos)
-    return {
-        "workers": [
-            {"id": s.id, "label": s.label, "healthy": s.healthy} for s in statuses
-        ]
-    }
+    return {"workers": [{"id": s.id, "label": s.label, "healthy": s.healthy} for s in statuses]}
 
 
 @router.get("/languages")
@@ -37,9 +33,7 @@ async def list_languages(
     try:
         base_url = worker_base_url(worker)
     except WorkerResolutionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     try:
         return await fetch_languages(base_url)

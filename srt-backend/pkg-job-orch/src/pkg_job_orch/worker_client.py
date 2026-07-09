@@ -83,9 +83,7 @@ async def stream_translate(
             ) as resp:
                 if resp.status_code != 200:
                     detail = await _safe_text(resp)
-                    raise WorkerStreamError(
-                        f"worker opened {resp.status_code}: {detail}"
-                    )
+                    raise WorkerStreamError(f"worker opened {resp.status_code}: {detail}")
 
                 terminal = False
                 async for line in resp.aiter_lines():
@@ -100,9 +98,7 @@ async def stream_translate(
                             batches_total_sum += int(event["batch_total"])
                         batches_done += 1
                         fraction = (
-                            batches_done / batches_total_sum
-                            if batches_total_sum > 0
-                            else 0.0
+                            batches_done / batches_total_sum if batches_total_sum > 0 else 0.0
                         )
                         if on_progress is not None:
                             on_progress(fraction)
@@ -117,16 +113,12 @@ async def stream_translate(
                         terminal = True
                         return outcome
                     elif etype == "error":
-                        raise WorkerStreamError(
-                            str(event.get("detail", "worker error"))
-                        )
+                        raise WorkerStreamError(str(event.get("detail", "worker error")))
                     else:
                         logger.warning("unknown stream event: %r", event)
 
                 if not terminal:
-                    raise WorkerStreamError(
-                        "worker stream ended without a terminal event"
-                    )
+                    raise WorkerStreamError("worker stream ended without a terminal event")
     except WorkerStreamError:
         raise
     except (httpx.HTTPError, OSError) as exc:
@@ -146,8 +138,6 @@ async def _safe_text(resp: httpx.Response) -> str:
 
 
 # Adapter helper — shared by routes (POST validation) and orchestration.
-def build_segments(
-    cues: list[Any], source_lang: str
-) -> list[dict[str, Any]]:
+def build_segments(cues: list[Any], source_lang: str) -> list[dict[str, Any]]:
     """Map cues → worker ``segments`` format: ``[{id, "<src>": text}]``."""
     return [{"id": cue.index, source_lang: cue.text} for cue in cues]

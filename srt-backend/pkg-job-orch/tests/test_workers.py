@@ -74,7 +74,10 @@ def test_worker_label_falls_back_to_title_case() -> None:
 async def test_probe_workers_reports_health_and_never_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    infos = [WorkerInfo(id="up", base_url="http://up"), WorkerInfo(id="down", base_url="http://down")]
+    infos = [
+        WorkerInfo(id="up", base_url="http://up"),
+        WorkerInfo(id="down", base_url="http://down"),
+    ]
 
     def handler(request: httpx.Request) -> httpx.Response:
         host = request.url.host
