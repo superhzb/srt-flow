@@ -14,11 +14,12 @@ declare const process: {
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: "127.0.0.1",
     port: Number(process.env.FRONTEND_PORT) || 19105,
     allowedHosts: ["www.srt-flow.com", ".srt-flow.com"],
     proxy: {
       "/api": {
-        target: `http://localhost:${process.env.BACKEND_PORT || 19205}`,
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT || 19205}`,
         changeOrigin: true,
       },
     },

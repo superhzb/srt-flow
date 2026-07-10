@@ -38,6 +38,7 @@ from pkg_job_orch.api import (
 from sqlmodel import Session
 
 from srt_backend.app_store import AppStore
+from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
 from srt_backend.routes_workers import router as workers_router
 
@@ -120,6 +121,7 @@ def _create_app() -> FastAPI:
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
     app.include_router(auth_router, prefix="/api")
+    app.include_router(health_router, prefix="/api")
     app.include_router(billing_router, prefix="/api")
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")

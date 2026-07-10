@@ -11,23 +11,30 @@ FRONTEND_PORT ?= 19105
 BACKEND_PORT  ?= 19205
 MLX_PORT      ?= 19305
 CLOUD_PORT    ?= 19405
+SRT_FLOW_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+
+export SRT_FLOW_COMMIT
 
 # One-line local stack.
 dev:
 	@echo "backend :$(BACKEND_PORT) · worker :$(MLX_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) worker & \
-	$(MAKE) cloud-worker & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) worker & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
 # App only: backend + frontend.
 dev-app:
 	@echo "backend :$(BACKEND_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops both)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
 dev-full: dev
@@ -35,10 +42,12 @@ dev-full: dev
 # Cloud translation worker variant.
 dev-cloud:
 	@echo "backend :$(BACKEND_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) cloud-worker & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
 backend:

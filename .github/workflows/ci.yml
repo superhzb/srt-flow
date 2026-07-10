@@ -2,12 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   ruff:
@@ -24,6 +20,9 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      ENV: dev
+      AUTH_MODE: dev
     defaults:
       run:
         working-directory: srt-backend
@@ -33,7 +32,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.12
-      - run: uv sync --all-extras
+      - run: uv sync --frozen --all-extras
       - run: uv run pyright
       - run: uv run pytest -q
 
@@ -48,7 +47,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.12
-      - run: uv sync
+      - run: uv sync --frozen
       - run: uv run pyright
       - run: uv run pytest -q
 
@@ -63,7 +62,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.12
-      - run: uv sync
+      - run: uv sync --frozen
       - run: uv run pyright
       # e2e tests hit a live DeepSeek API; run them only behind a secret.
       - run: uv run pytest -q -m "not e2e"
@@ -81,7 +80,7 @@ jobs:
       - run: uv python install 3.12
       # Sync WITHOUT the [mlx] extra: mlx/mlx-lm are Apple-silicon only and
       # cannot install on the Linux CI runner. Non-e2e tests don't import them.
-      - run: uv sync
+      - run: uv sync --frozen
       - run: uv run pyright
       - run: uv run pytest -q -m "not e2e"
 
@@ -103,3 +102,35 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+  deploy-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    needs: [ruff, backend, pkg-translator, cloud-worker, mlx-worker, frontend]
+    runs-on: [self-hosted, macOS, srt-flow-deploy]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    environment: staging
+    concurrency:
+      group: srt-flow-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the tested commit to staging
+        run: ./scripts/deploy.sh staging "${{ github.sha }}"
+
+  deploy-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [ruff, backend, pkg-translator, cloud-worker, mlx-worker, frontend]
+    runs-on: [self-hosted, macOS, srt-flow-deploy]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    environment: production
+    concurrency:
+      group: srt-flow-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the tested commit to production
+        run: ./scripts/deploy.sh production "${{ github.sha }}"
