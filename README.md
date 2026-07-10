@@ -51,6 +51,23 @@ package tests, frontend Prettier/ESLint/typecheck/tests, and frontend build.
 Use `make lint`, `make typecheck`, `make test`, or `make build` for narrower
 local loops.
 
+Install the repository-managed Git hooks once per checkout:
+
+```bash
+make hooks
+```
+
+The pre-push hook runs `make check` before updating a remote branch. GitHub CI
+independently runs the same validation and remains the authoritative check.
+
+## Branch workflow
+
+- Push development commits directly to `staging`; successful CI deploys the
+  tested commit to the staging environment.
+- Promote `staging` to `main` with a pull request. The protected `main` branch
+  requires CI to pass before merge.
+- Successful CI on `main` deploys the tested commit to production.
+
 ## Environment
 
 Copy `.env.example` to the package or shell environment you are running. Local

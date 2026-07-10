@@ -5,7 +5,7 @@
 # Ports (brebot router convention; override on the make command line for clones):
 #   frontend 19105 · backend 19205 · worker 19305 · cloud-worker 19405
 
-.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install lint typecheck test build check
+.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install hooks lint typecheck test build check
 
 FRONTEND_PORT ?= 19105
 BACKEND_PORT  ?= 19205
@@ -68,6 +68,10 @@ install:
 	cd srt-mlx-worker && uv sync
 	cd srt-cloud-worker && uv sync
 	cd srt-frontend && npm install
+
+# Use the repository-managed Git hooks in this checkout.
+hooks:
+	git config core.hooksPath .githooks
 
 lint:
 	uvx ruff check .
