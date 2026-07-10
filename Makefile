@@ -5,29 +5,37 @@
 # Ports (brebot router convention; override on the make command line for clones):
 #   frontend 19105 · backend 19205 · worker 19305 · cloud-worker 19405
 
-.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install lint typecheck test build check
+.PHONY: dev dev-app dev-full dev-cloud serve backend backend-serve frontend worker cloud-worker install hooks lint typecheck test build check
 
 FRONTEND_PORT ?= 19105
 BACKEND_PORT  ?= 19205
 MLX_PORT      ?= 19305
 CLOUD_PORT    ?= 19405
+SRT_FLOW_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+WORKERS := mlx=http://localhost:$(MLX_PORT),cloud=http://localhost:$(CLOUD_PORT)
+
+export SRT_FLOW_COMMIT WORKERS
 
 # One-line local stack.
 dev:
 	@echo "backend :$(BACKEND_PORT) · worker :$(MLX_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) worker & \
-	$(MAKE) cloud-worker & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) worker & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
 # App only: backend + frontend.
 dev-app:
 	@echo "backend :$(BACKEND_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops both)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
 dev-full: dev
@@ -35,14 +43,30 @@ dev-full: dev
 # Cloud translation worker variant.
 dev-cloud:
 	@echo "backend :$(BACKEND_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) cloud-worker & \
-	$(MAKE) frontend & \
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
+	$(MAKE) frontend & pids="$$pids $$!"; \
+	wait
+
+# Deployment stack: FastAPI serves the prebuilt frontend on BACKEND_PORT.
+serve:
+	@echo "app :$(BACKEND_PORT) · worker :$(MLX_PORT) · cloud-worker :$(CLOUD_PORT)  (Ctrl-C stops all)"
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend-serve & pids="$$pids $$!"; \
+	$(MAKE) worker & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
 	wait
 
 backend:
 	cd srt-backend && uv run uvicorn srt_backend.app:api --reload --port $(BACKEND_PORT)
+
+backend-serve:
+	cd srt-backend && uv run uvicorn srt_backend.app:api --host 127.0.0.1 --port $(BACKEND_PORT)
 
 frontend:
 	cd srt-frontend && FRONTEND_PORT=$(FRONTEND_PORT) BACKEND_PORT=$(BACKEND_PORT) npm run dev
@@ -59,6 +83,10 @@ install:
 	cd srt-mlx-worker && uv sync
 	cd srt-cloud-worker && uv sync
 	cd srt-frontend && npm install
+
+# Use the repository-managed Git hooks in this checkout.
+hooks:
+	git config core.hooksPath .githooks
 
 lint:
 	uvx ruff check .

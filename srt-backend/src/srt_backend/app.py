@@ -5,8 +5,9 @@ seeds the dev user, replays pending/processing jobs onto the queue, and
 starts the single ``worker_loop``. The job routes live in
 ``pkg_job_orch.routes`` and read shared state off ``app.state.job_ctx``.
 
-Static SPA serving is still deferred (slice 7 deploy) — slices 1–6
-run through the Vite dev proxy.
+The production Vite build is served at the root after the API routes. Hashed
+assets are immutable; the HTML shell is always revalidated so deployments
+cannot mix asset versions.
 """
 
 from __future__ import annotations
@@ -36,8 +37,13 @@ from pkg_job_orch.api import (
     worker_loop,
 )
 from sqlmodel import Session
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from srt_backend.app_store import AppStore
+from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
 from srt_backend.routes_workers import router as workers_router
 
@@ -45,6 +51,25 @@ __all__ = ["api"]
 
 logger = logging.getLogger(__name__)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+
+class SpaStaticFiles(StaticFiles):
+    """Serve a Vite SPA with safe cache headers and history fallback."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or path.startswith("assets/"):
+                raise
+            response = await super().get_response("index.html", scope)
+
+        request_path = str(scope.get("path", ""))
+        if request_path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _build_ctx() -> JobContext:
@@ -120,11 +145,18 @@ def _create_app() -> FastAPI:
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
     app.include_router(auth_router, prefix="/api")
+    app.include_router(health_router, prefix="/api")
     app.include_router(billing_router, prefix="/api")
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
     app.include_router(db_router, prefix="/api")
+
+    frontend_dist = Path(__file__).resolve().parents[3] / "srt-frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount("/", SpaStaticFiles(directory=frontend_dist, html=True), name="frontend")
+    else:
+        logger.warning("frontend build not found at %s; static SPA is disabled", frontend_dist)
     return app
 
 
