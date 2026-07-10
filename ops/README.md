@@ -24,6 +24,11 @@ The existing brbot-router `.env` is used automatically when it lives at
 `chmod 600 ~/.config/srt-flow/deploy.env`.
 
 Both deployment clones must be clean and checked out on their assigned branch.
+Each deployment runs `npm ci` followed by `npm run build`; FastAPI serves the
+resulting `srt-frontend/dist` directory instead of exposing the Vite dev server.
+Vite's hashed assets are cached immutably while the HTML shell is revalidated.
+Configure each router project to run `make serve` and route its public domain to
+the project's `BACKEND_PORT`; `make dev` and `FRONTEND_PORT` are local-only.
 The prototype currently uses `ENV=dev` and `AUTH_MODE=dev` in each clone's
 ignored `srt-backend/.env`. Before treating either public site as production,
 switch to Google authentication and the corresponding `ENV` value.

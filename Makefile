@@ -5,7 +5,7 @@
 # Ports (brebot router convention; override on the make command line for clones):
 #   frontend 19105 · backend 19205 · worker 19305 · cloud-worker 19405
 
-.PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install hooks lint typecheck test build check
+.PHONY: dev dev-app dev-full dev-cloud serve backend backend-serve frontend worker cloud-worker install hooks lint typecheck test build check
 
 FRONTEND_PORT ?= 19105
 BACKEND_PORT  ?= 19205
@@ -51,8 +51,22 @@ dev-cloud:
 	$(MAKE) frontend & pids="$$pids $$!"; \
 	wait
 
+# Deployment stack: FastAPI serves the prebuilt frontend on BACKEND_PORT.
+serve:
+	@echo "app :$(BACKEND_PORT) · worker :$(MLX_PORT) · cloud-worker :$(CLOUD_PORT)  (Ctrl-C stops all)"
+	@pids=""; \
+	cleanup() { trap - INT TERM EXIT; for pid in $$pids; do kill "$$pid" 2>/dev/null || true; done; for pid in $$pids; do wait "$$pid" 2>/dev/null || true; done; }; \
+	trap 'exit 130' INT TERM; trap cleanup EXIT; \
+	$(MAKE) backend-serve & pids="$$pids $$!"; \
+	$(MAKE) worker & pids="$$pids $$!"; \
+	$(MAKE) cloud-worker & pids="$$pids $$!"; \
+	wait
+
 backend:
 	cd srt-backend && uv run uvicorn srt_backend.app:api --reload --port $(BACKEND_PORT)
+
+backend-serve:
+	cd srt-backend && uv run uvicorn srt_backend.app:api --host 127.0.0.1 --port $(BACKEND_PORT)
 
 frontend:
 	cd srt-frontend && FRONTEND_PORT=$(FRONTEND_PORT) BACKEND_PORT=$(BACKEND_PORT) npm run dev

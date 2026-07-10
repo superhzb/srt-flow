@@ -63,8 +63,11 @@ while [[ $# -gt 0 ]]; do
 done
 """,
     )
-    for command in ("uv", "npm"):
-        _write_executable(fake_bin / command, "#!/bin/bash\nexit 0\n")
+    _write_executable(fake_bin / "uv", "#!/bin/bash\nexit 0\n")
+    _write_executable(
+        fake_bin / "npm",
+        '#!/bin/bash\nprintf \'%s\\n\' "$*" >> "$NPM_ACTIONS"\n',
+    )
     _write_executable(
         fake_bin / "curl",
         """#!/bin/bash
@@ -98,6 +101,7 @@ esac
         "BRBOT_ROUTER_PASSCODE": "test-passcode",
         "ROUTER_ACTIONS": str(actions),
         "EXPECTED_SHA": expected_sha,
+        "NPM_ACTIONS": str(tmp_path / "npm-actions"),
     }
 
 
@@ -129,6 +133,7 @@ def test_deploys_only_the_ci_event_sha(
         .endswith("/api/projects/srt-flow-stg/start")
     )
     assert first_sha != second_sha
+    assert (tmp_path / "npm-actions").read_text().splitlines() == ["ci", "run build"]
 
 
 def test_skips_when_branch_advanced_past_tested_sha(
