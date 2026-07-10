@@ -182,7 +182,7 @@ export default function App() {
           <div>
             <h1 className="text-2xl font-bold">srt-flow</h1>
             <p className="text-sm text-slate-600 mt-1">
-              Slice 3 — translate an <code>.srt</code> file. Jobs persist across
+              Slice 7 — translate an <code>.srt</code> file. Jobs persist across
               restarts.
             </p>
           </div>
