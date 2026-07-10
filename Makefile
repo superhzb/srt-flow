@@ -12,8 +12,9 @@ BACKEND_PORT  ?= 19205
 MLX_PORT      ?= 19305
 CLOUD_PORT    ?= 19405
 SRT_FLOW_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+WORKERS := mlx=http://localhost:$(MLX_PORT),cloud=http://localhost:$(CLOUD_PORT)
 
-export SRT_FLOW_COMMIT
+export SRT_FLOW_COMMIT WORKERS
 
 # One-line local stack.
 dev:
