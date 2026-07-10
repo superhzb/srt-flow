@@ -2,14 +2,19 @@
 # `make dev` runs all services concurrently;
 # Ctrl-C tears all of them down together.
 #
-# Ports (uncommon block, avoids 3000/5173/8000/8080 clashes):
-#   frontend 5730 · backend 5731 · worker 5732 · cloud-worker 5733
+# Ports (brebot router convention; override on the make command line for clones):
+#   frontend 19105 · backend 19205 · worker 19305 · cloud-worker 19405
 
 .PHONY: dev dev-app dev-full dev-cloud backend frontend worker cloud-worker install lint typecheck test build check
 
+FRONTEND_PORT ?= 19105
+BACKEND_PORT  ?= 19205
+MLX_PORT      ?= 19305
+CLOUD_PORT    ?= 19405
+
 # One-line local stack.
 dev:
-	@echo "backend :5731 · worker :5732 · cloud-worker :5733 · frontend :5730  (Ctrl-C stops all)"
+	@echo "backend :$(BACKEND_PORT) · worker :$(MLX_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
 	@trap 'kill 0' INT TERM EXIT; \
 	$(MAKE) backend & \
 	$(MAKE) worker & \
@@ -19,7 +24,7 @@ dev:
 
 # App only: backend + frontend.
 dev-app:
-	@echo "backend :5731 · frontend :5730  (Ctrl-C stops both)"
+	@echo "backend :$(BACKEND_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops both)"
 	@trap 'kill 0' INT TERM EXIT; \
 	$(MAKE) backend & \
 	$(MAKE) frontend & \
@@ -27,9 +32,9 @@ dev-app:
 
 dev-full: dev
 
-# Cloud translation worker variant on :5733.
+# Cloud translation worker variant.
 dev-cloud:
-	@echo "backend :5731 · cloud-worker :5733 · frontend :5730  (Ctrl-C stops all)"
+	@echo "backend :$(BACKEND_PORT) · cloud-worker :$(CLOUD_PORT) · frontend :$(FRONTEND_PORT)  (Ctrl-C stops all)"
 	@trap 'kill 0' INT TERM EXIT; \
 	$(MAKE) backend & \
 	$(MAKE) cloud-worker & \
@@ -37,16 +42,16 @@ dev-cloud:
 	wait
 
 backend:
-	cd srt-backend && uv run uvicorn srt_backend.app:api --reload --port 5731
+	cd srt-backend && uv run uvicorn srt_backend.app:api --reload --port $(BACKEND_PORT)
 
 frontend:
-	cd srt-frontend && npm run dev
+	cd srt-frontend && FRONTEND_PORT=$(FRONTEND_PORT) BACKEND_PORT=$(BACKEND_PORT) npm run dev
 
 worker:
-	cd srt-mlx-worker && WORKER_PORT=5732 uv run --extra mlx uvicorn srt_mlx_worker.server:app --port 5732
+	cd srt-mlx-worker && WORKER_PORT=$(MLX_PORT) uv run --extra mlx uvicorn srt_mlx_worker.server:app --port $(MLX_PORT)
 
 cloud-worker:
-	cd srt-cloud-worker && WORKER_PORT=5733 uv run uvicorn srt_cloud_worker.server:app --port 5733
+	cd srt-cloud-worker && WORKER_PORT=$(CLOUD_PORT) uv run uvicorn srt_cloud_worker.server:app --port $(CLOUD_PORT)
 
 install:
 	cd srt-backend && uv sync
