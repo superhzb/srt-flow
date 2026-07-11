@@ -24,6 +24,18 @@ __all__ = ["StreamOutcome", "WorkerStreamError", "build_segments", "stream_trans
 
 logger = logging.getLogger(__name__)
 
+
+class ProgressUpdate(float):
+    """Aggregate-compatible progress value carrying per-target counters."""
+
+    by_target: dict[str, dict[str, int]]
+
+    def __new__(cls, fraction: float, by_target: dict[str, dict[str, int]]) -> ProgressUpdate:
+        value = float.__new__(cls, fraction)
+        value.by_target = by_target
+        return value
+
+
 ProgressCallback = Callable[[float], None]
 
 
@@ -72,9 +84,10 @@ async def stream_translate(
         "segments": segments,
     }
 
+    progress_by_target: dict[str, dict[str, int]] = {}
+    seen_targets: set[str] = set()
     batches_done = 0
     batches_total_sum = 0
-    seen_targets: set[int] = set()
 
     try:
         async with httpx.AsyncClient(timeout=None) as client:
@@ -92,16 +105,24 @@ async def stream_translate(
                     event = json.loads(line)
                     etype = event.get("event")
                     if etype == "progress":
-                        ti = int(event["target_index"])
-                        if ti not in seen_targets:
-                            seen_targets.add(ti)
-                            batches_total_sum += int(event["batch_total"])
+                        target_index = int(event["target_index"])
+                        target = str(event.get("target", targets[target_index]))
+                        total = int(event["batch_total"])
+                        previous_done = progress_by_target.get(target, {}).get("done", 0)
+                        done = int(event.get("batch_index", previous_done)) + 1
+                        progress_by_target[target] = {
+                            "done": done,
+                            "total": total,
+                        }
+                        if target not in seen_targets:
+                            seen_targets.add(target)
+                            batches_total_sum += total
                         batches_done += 1
-                        fraction = (
-                            batches_done / batches_total_sum if batches_total_sum > 0 else 0.0
-                        )
                         if on_progress is not None:
-                            on_progress(fraction)
+                            fraction = (
+                                batches_done / batches_total_sum if batches_total_sum else 0.0
+                            )
+                            on_progress(ProgressUpdate(fraction, dict(progress_by_target)))
                     elif etype == "result":
                         outcome = StreamOutcome(
                             source_lang=str(event.get("source_lang", source_lang)),
@@ -109,7 +130,14 @@ async def stream_translate(
                             segments=list(event.get("segments", [])),
                         )
                         if on_progress is not None:
-                            on_progress(1.0)
+                            completed = {
+                                target: {
+                                    "done": progress_by_target.get(target, {}).get("total", 1),
+                                    "total": progress_by_target.get(target, {}).get("total", 1),
+                                }
+                                for target in outcome.targets
+                            }
+                            on_progress(ProgressUpdate(1.0, completed))
                         terminal = True
                         return outcome
                     elif etype == "error":

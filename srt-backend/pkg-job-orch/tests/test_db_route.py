@@ -79,6 +79,7 @@ def test_table_rows_are_paged_and_bounds_checked(route_db: str) -> None:
         "src_lang",
         "tgt_langs",
         "progress",
+        "progress_by_target",
         "error",
         "created_at",
         "started_at",

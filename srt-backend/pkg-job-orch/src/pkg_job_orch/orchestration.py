@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from pkg_file_upload.api import Storage
 from pkg_srt_services.api import Cue, parse, serialize
@@ -336,14 +336,24 @@ async def _run_translation(
     cues = parse(raw_input.decode("utf-8"))
     segments = build_segments(cues, src_lang)
 
-    def on_progress(fraction: float) -> None:
+    def on_progress(progress: float) -> None:
         # Sync DB write inside an async callback — SQLite is fast; the
         # event loop briefly blocks. Acceptable at slice-3 volume.
         try:
             with session_scope() as session:
                 row = session.get(Job, job_id)
                 if row is not None and row.status == "processing":
-                    row.progress = float(fraction)
+                    raw_target_progress = getattr(progress, "by_target", None)
+                    if isinstance(raw_target_progress, dict):
+                        from .models import progress_to_json
+
+                        progress_by_target = cast(dict[str, dict[str, int]], raw_target_progress)
+                        row.progress_by_target = progress_to_json(progress_by_target)
+                        done = sum(item["done"] for item in progress_by_target.values())
+                        total = sum(item["total"] for item in progress_by_target.values())
+                        row.progress = done / total if total else 0.0
+                    else:  # Backwards-compatible test/custom worker clients.
+                        row.progress = float(progress)
                     session.add(row)
         except Exception:  # noqa: BLE001 — progress write must not kill the job
             logger.warning("worker_loop: progress write failed for %s", job_id)

@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel import col, select
 
 from .db import session_scope
-from .models import Job, dropped_from_json, tgt_langs_from_csv
+from .models import Job, dropped_from_json, progress_from_json, tgt_langs_from_csv
 from .orchestration import EnqueueError, enqueue
 from .workers import WorkerResolutionError
 
@@ -113,6 +113,10 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
             "error_kind": job.error_kind,
             "attempts": job.attempts,
         }
+        progress = progress_from_json(job.progress_by_target)
+        targets = tgt_langs_from_csv(job.tgt_langs)
+        out["targets"] = [_target_progress(lang, progress, job.status) for lang in targets]
+        out["eta_seconds"] = _eta_seconds(job, progress)
         if job.error is not None:
             out["error"] = job.error
         if job.dropped_by_target is not None:
@@ -133,6 +137,37 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
                 "download_url": f"/api/jobs/{job.id}/download?{query}",
             }
         return out
+
+
+def _target_progress(
+    lang: str, progress: dict[str, dict[str, int]], job_status: str
+) -> dict[str, Any]:
+    item = progress.get(lang)
+    if job_status == "done":
+        return {"lang": lang, "status": "done", "progress": 1.0}
+    if item is None:
+        return {"lang": lang, "status": "queued", "progress": 0.0}
+    total = item["total"]
+    fraction = min(1.0, item["done"] / total) if total > 0 else 0.0
+    return {"lang": lang, "status": "done" if fraction >= 1 else "running", "progress": fraction}
+
+
+def _eta_seconds(job: Job, progress: dict[str, dict[str, int]]) -> float | None:
+    if job.status == "done":
+        return 0.0
+    if job.started_at is None:
+        return None
+    from datetime import UTC, datetime
+
+    started = job.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    elapsed = (datetime.now(UTC) - started).total_seconds()
+    done = sum(item["done"] for item in progress.values())
+    total = sum(item["total"] for item in progress.values())
+    if elapsed <= 0 or done <= 0:
+        return None
+    return max(0.0, (total - done) / (done / elapsed))
 
 
 @router.get("/{job_id}/download")

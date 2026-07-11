@@ -26,6 +26,8 @@ __all__ = [
     "User",
     "dropped_from_json",
     "dropped_to_json",
+    "progress_from_json",
+    "progress_to_json",
     "tgt_langs_to_csv",
     "tgt_langs_from_csv",
 ]
@@ -66,6 +68,22 @@ def dropped_from_json(value: str | None) -> dict[str, int]:
     return {str(target): int(count) for target, count in parsed.items()}
 
 
+def progress_to_json(progress: dict[str, dict[str, int]]) -> str:
+    """Serialize per-target batch counters to stable JSON text."""
+    return json.dumps(progress, separators=(",", ":"), sort_keys=True)
+
+
+def progress_from_json(value: str | None) -> dict[str, dict[str, int]]:
+    """Parse stored per-target batch counters, tolerating an empty column."""
+    if not value:
+        return {}
+    parsed = json.loads(value)
+    return {
+        str(lang): {"done": int(item["done"]), "total": int(item["total"])}
+        for lang, item in parsed.items()
+    }
+
+
 class User(SQLModel, table=True):
     """Canonical durable user row shared by auth, billing, and job orchestration."""
 
@@ -99,6 +117,7 @@ class Job(SQLModel, table=True):
     src_lang: str
     tgt_langs: str = Field(default="")  # CSV — see tgt_langs_from_csv
     progress: float = Field(default=0.0)
+    progress_by_target: str | None = Field(default=None)
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime | None = Field(

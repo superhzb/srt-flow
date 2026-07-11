@@ -94,6 +94,11 @@ async def test_progress_denominator_folds_across_targets(patched_client: Any) ->
 
     assert isinstance(outcome, StreamOutcome)
     assert outcome.targets == ["es", "fr"]
+    final_progress: Any = fractions[-1]
+    assert final_progress.by_target == {
+        "es": {"done": 2, "total": 2},
+        "fr": {"done": 3, "total": 3},
+    }
     assert outcome.segments == [{"id": 0, "es": "hola", "fr": "bonjour"}]
     # 5 progress folds + the terminal 1.0 emitted by the result event.
     assert fractions == [0.5, 1.0, 0.6, 0.8, 1.0, 1.0]
