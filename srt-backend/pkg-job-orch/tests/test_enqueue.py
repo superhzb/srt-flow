@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ from pkg_job_orch.api import (
     User,
     WorkerStreamError,
     default_worker_client,
+    dropped_from_json,
     enqueue,
     enqueue_pending,
     get_engine,
@@ -136,6 +138,9 @@ def test_recover_resets_processing_to_pending(temp_db: str) -> None:
                 src_lang="en",
                 status="processing",
                 progress=0.4,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+                attempts=2,
+                error_kind="internal",
             )
         )
         s.add(Job(id="p2", user_id=DEV_USER_ID, worker="mlx", src_lang="en", status="pending"))
@@ -160,6 +165,10 @@ def test_recover_resets_processing_to_pending(temp_db: str) -> None:
         assert p1.status == "pending"
         assert p1.progress == 0.0
         assert p1.error is None
+        assert p1.error_kind is None
+        assert p1.started_at is not None
+        assert p1.started_at.replace(tzinfo=UTC) == datetime(2026, 1, 1, tzinfo=UTC)
+        assert p1.attempts == 2
         # done row untouched
         d1 = s.get(Job, "d1")
         assert d1 is not None
@@ -215,6 +224,9 @@ async def test_worker_loop_processes_job_to_done(
     assert job is not None
     assert job.status == "done", f"error: {job.error}"
     assert job.progress == 1.0
+    assert job.started_at is not None
+    assert job.attempts == 1
+    assert dropped_from_json(job.dropped_by_target) == {"fr": 0, "de": 0}
     # Two output files written.
     fr = job_ctx.storage.get(DEV_USER_ID, result.job_id, "output.fr.srt")
     de = job_ctx.storage.get(DEV_USER_ID, result.job_id, "output.de.srt")
@@ -256,6 +268,8 @@ async def test_worker_loop_marks_failed_on_worker_error(temp_db: str, job_ctx: J
     assert job is not None
     assert job.status == "failed"
     assert "boom" in (job.error or "")
+    assert job.error_kind == "worker_stream"
+    assert job.dropped_by_target is None
     # No output files for a failed job.
     import pytest as _pt
     from pkg_file_upload.api import StorageError

@@ -21,6 +21,8 @@ __all__ = [
     "Job",
     "ProcessedEvent",
     "User",
+    "dropped_from_json",
+    "dropped_to_json",
     "tgt_langs_from_csv",
     "tgt_langs_to_csv",
     # orchestration
@@ -71,6 +73,8 @@ from .models import (
     Job,
     ProcessedEvent,
     User,
+    dropped_from_json,
+    dropped_to_json,
     tgt_langs_from_csv,
     tgt_langs_to_csv,
 )

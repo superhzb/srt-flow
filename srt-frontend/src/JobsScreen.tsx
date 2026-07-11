@@ -61,6 +61,8 @@ export function JobsScreen() {
                 <th className="px-3 py-2 text-left">worker</th>
                 <th className="px-3 py-2 text-left">langs</th>
                 <th className="px-3 py-2 text-left w-32">progress</th>
+                <th className="px-3 py-2 text-left">attempts</th>
+                <th className="px-3 py-2 text-left">queue wait</th>
                 <th className="px-3 py-2 text-left">created</th>
               </tr>
             </thead>
@@ -96,6 +98,10 @@ export function JobsScreen() {
                     </td>
                     <td className="px-3 py-2 tabular-nums">
                       {(j.progress * 100).toFixed(0)}%
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">{j.attempts}</td>
+                    <td className="px-3 py-2 text-xs tabular-nums text-slate-600">
+                      {formatElapsed(j.created_at, j.started_at)}
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-500">
                       {new Date(j.created_at).toLocaleString()}
@@ -160,6 +166,7 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
               status: <StatusBadge status={body.status} />
             </div>
             <div>progress: {(body.progress * 100).toFixed(0)}%</div>
+            <div>attempts: {body.attempts}</div>
             <div>
               worker: <span className="font-mono">{body.worker}</span>
             </div>
@@ -169,10 +176,36 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
                 {body.src_lang} → {body.tgt_langs.join(", ")}
               </span>
             </div>
+            <div>
+              created: <Timestamp value={body.created_at} />
+            </div>
+            <div>
+              started: <Timestamp value={body.started_at} />
+            </div>
+            <div>
+              finished: <Timestamp value={body.finished_at} />
+            </div>
+            <div>
+              queue wait: {formatElapsed(body.created_at, body.started_at)}
+            </div>
+            <div>
+              elapsed: {formatElapsed(body.started_at, body.finished_at)}
+            </div>
+            {body.error_kind && (
+              <div>
+                error kind:{" "}
+                <span className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs text-red-800">
+                  {body.error_kind}
+                </span>
+              </div>
+            )}
             {body.error && (
               <div className="text-red-700">error: {body.error}</div>
             )}
           </div>
+          {body.dropped_by_target && (
+            <DroppedCounts counts={body.dropped_by_target} />
+          )}
           {body.results && body.results.length > 0 && (
             <ResultsList results={body.results} />
           )}
@@ -180,6 +213,49 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
       )}
     </div>
   );
+}
+
+function Timestamp({ value }: { value: string | null }) {
+  return value ? (
+    <span className="tabular-nums">{new Date(value).toLocaleString()}</span>
+  ) : (
+    <span className="text-slate-400">—</span>
+  );
+}
+
+function DroppedCounts({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  return (
+    <div
+      className={`rounded-md border p-3 text-sm ${
+        total > 0
+          ? "border-amber-300 bg-amber-50 text-amber-900"
+          : "border-slate-200 bg-slate-50 text-slate-700"
+      }`}
+    >
+      <p className="font-medium">Dropped cues: {total}</p>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {entries.map(([target, count]) => (
+          <span key={target} className="font-mono text-xs">
+            {target}: {count}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatElapsed(start: string | null, end: string | null): string {
+  if (!start || !end) return "—";
+  const milliseconds = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
+  if (milliseconds < 1000) return `${milliseconds} ms`;
+  const seconds = milliseconds / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainingSeconds}s`;
 }
 
 function ResultsList({ results }: { results: JobResult[] }) {

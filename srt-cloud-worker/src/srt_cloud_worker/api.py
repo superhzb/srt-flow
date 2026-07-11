@@ -10,7 +10,9 @@ importing it from here would construct the app at import time.
 
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from typing import Any, cast
 
 from fastapi import FastAPI
 from pkg_translator.api import (
@@ -67,10 +69,15 @@ class _CloudBackend:
         return llm.generate_text(prompt, cast(TranslationConfig, config))
 
 
-def create_app(default_config: TranslationConfig | None = None) -> FastAPI:
+def create_app(
+    default_config: TranslationConfig | None = None,
+    *,
+    lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
+) -> FastAPI:
     """Build the cloud-worker FastAPI app with the OpenAI backend wired in."""
     return _create_app(
         default_config or TranslationConfig(),
         backend=_CloudBackend(),
         title="SRT Cloud Worker",
+        lifespan=lifespan,
     )

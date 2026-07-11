@@ -40,6 +40,7 @@ export interface LanguageInfo {
 }
 
 export type JobStatus = "pending" | "processing" | "done" | "failed";
+export type JobErrorKind = "worker_stream" | "internal" | "landing" | string;
 
 // Slice-3 result shape: no inline srt — fetch via download_url.
 export interface JobResult {
@@ -54,6 +55,12 @@ export interface JobStatusResponse {
   worker: string;
   src_lang: string;
   tgt_langs: string[];
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_kind: JobErrorKind | null;
+  attempts: number;
+  dropped_by_target?: Record<string, number>;
   results?: JobResult[];
   error?: string;
 }
@@ -66,6 +73,9 @@ export interface JobSummary {
   tgt_langs: string[];
   progress: number;
   created_at: string;
+  started_at: string | null;
+  error_kind: JobErrorKind | null;
+  attempts: number;
 }
 
 export interface TableInfo {

@@ -5,6 +5,7 @@ import json
 import logging
 import queue as queue_mod
 from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -41,9 +42,10 @@ def create_app(
     backend: LLMBackend,
     title: str,
     translate_func: TranslateFunc | None = None,
+    lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
 ) -> FastAPI:
     config = default_config or TranslationConfig()
-    app = FastAPI(title=title, version="0.1.0")
+    app = FastAPI(title=title, version="0.1.0", lifespan=lifespan)
     active_translate = translate_func or translate_segments
 
     def translate(request: TranslationRequest) -> TranslationResponse:

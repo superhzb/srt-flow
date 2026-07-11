@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import col, select
 
 from .db import session_scope
-from .models import Job, tgt_langs_from_csv
+from .models import Job, dropped_from_json, tgt_langs_from_csv
 from .orchestration import EnqueueError, enqueue
 from .workers import WorkerResolutionError
 
@@ -89,9 +89,16 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
             "worker": job.worker,
             "src_lang": job.src_lang,
             "tgt_langs": tgt_langs_from_csv(job.tgt_langs),
+            "created_at": job.created_at.isoformat(),
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "error_kind": job.error_kind,
+            "attempts": job.attempts,
         }
         if job.error is not None:
             out["error"] = job.error
+        if job.dropped_by_target is not None:
+            out["dropped_by_target"] = dropped_from_json(job.dropped_by_target)
         if job.status == "done":
             out["results"] = [
                 {

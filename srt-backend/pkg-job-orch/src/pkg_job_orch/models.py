@@ -12,9 +12,11 @@ never stored — the row carries no path columns.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 __all__ = [
@@ -22,6 +24,8 @@ __all__ = [
     "JobStatus",
     "ProcessedEvent",
     "User",
+    "dropped_from_json",
+    "dropped_to_json",
     "tgt_langs_to_csv",
     "tgt_langs_from_csv",
 ]
@@ -47,6 +51,19 @@ def tgt_langs_from_csv(value: str | None) -> list[str]:
     if not value:
         return []
     return [c for c in value.split(",") if c]
+
+
+def dropped_to_json(dropped: dict[str, int]) -> str:
+    """Serialise per-target dropped-cue counts to stable JSON text."""
+    return json.dumps(dropped, separators=(",", ":"), sort_keys=True)
+
+
+def dropped_from_json(value: str | None) -> dict[str, int]:
+    """Parse per-target dropped-cue counts. Empty/None becomes an empty dict."""
+    if not value:
+        return {}
+    parsed = json.loads(value)
+    return {str(target): int(count) for target, count in parsed.items()}
 
 
 class User(SQLModel, table=True):
@@ -83,7 +100,14 @@ class Job(SQLModel, table=True):
     progress: float = Field(default=0.0)
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utcnow)
+    started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
     finished_at: datetime | None = Field(default=None)
+    error_kind: str | None = Field(default=None)
+    dropped_by_target: str | None = Field(default=None)
+    attempts: int = Field(default=0)
 
     def model_dump_summary(self) -> dict[str, Any]:
         """Compact dict for the GET /api/jobs list response."""
@@ -95,4 +119,7 @@ class Job(SQLModel, table=True):
             "tgt_langs": tgt_langs_from_csv(self.tgt_langs),
             "progress": self.progress,
             "created_at": self.created_at.isoformat(),
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "error_kind": self.error_kind,
+            "attempts": self.attempts,
         }

@@ -25,7 +25,7 @@ from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
 from .db import session_scope
-from .models import Job, User, tgt_langs_from_csv, tgt_langs_to_csv
+from .models import Job, User, dropped_to_json, tgt_langs_from_csv, tgt_langs_to_csv
 from .worker_client import (
     StreamOutcome,
     WorkerStreamError,
@@ -63,6 +63,14 @@ _QUEUE_POLL_TIMEOUT: float = 0.5
 
 class EnqueueError(ValueError):
     """Raised when a job cannot be enqueued (bad worker, bad cues, …)."""
+
+
+class LandingError(RuntimeError):
+    """A result-persistence failure after dropped-cue counts were computed."""
+
+    def __init__(self, message: str, *, dropped: dict[str, int]) -> None:
+        super().__init__(message)
+        self.dropped = dropped
 
 
 @dataclass(frozen=True)
@@ -230,6 +238,7 @@ def recover_jobs(session: Session) -> int:
         job.status = "pending"
         job.progress = 0.0
         job.error = None
+        job.error_kind = None
         session.add(job)
         reset += 1
     return reset
@@ -276,6 +285,9 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
             logger.info("worker_loop: job %s in status %s — skipping", job_id, job.status)
             return
         job.status = "processing"
+        if job.started_at is None:
+            job.started_at = datetime.now(UTC)
+        job.attempts += 1
         session.add(job)
         session.commit()
         session.refresh(job)
@@ -286,21 +298,26 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
     try:
         outcome = await _run_translation(ctx, job_id, worker, src_lang, targets)
     except WorkerStreamError as exc:
-        _mark_failed(job_id, str(exc))
+        logger.exception("worker_loop: worker stream failed for job %s", job_id)
+        _mark_failed(job_id, str(exc), "worker_stream")
         ctx.notifier.notify_failed(job_id, str(exc))
         return
     except Exception as exc:  # noqa: BLE001 — never let the worker_loop die
         logger.exception("worker_loop: translation crashed for job %s", job_id)
-        _mark_failed(job_id, f"internal error: {exc}")
+        _mark_failed(job_id, f"internal error: {exc}", "internal")
         ctx.notifier.notify_failed(job_id, f"internal error: {exc}")
         return
 
     # All-or-nothing: write all outputs, then flip status=done in one tx.
     try:
         _land_results(ctx, job_id, outcome)
-    except Exception as exc:  # noqa: BLE001
+    except LandingError as exc:
         logger.exception("worker_loop: landing results failed for job %s", job_id)
-        _mark_failed(job_id, f"failed to land results: {exc}")
+        _mark_failed(job_id, f"failed to land results: {exc}", "landing", exc.dropped)
+        ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("worker_loop: landing failed pre-count for job %s", job_id)
+        _mark_failed(job_id, f"failed to land results: {exc}", "landing")
         ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
 
 
@@ -345,31 +362,42 @@ async def _run_translation(
 def _land_results(ctx: JobContext, job_id: str, outcome: StreamOutcome) -> None:
     """Write one output.<lang>.srt per target, then mark the job done."""
     cues = parse(ctx.storage.get(ctx.dev_user_id, job_id, "input.srt").decode("utf-8"))
-    outputs = _build_outputs(cues, outcome)
+    outputs, dropped = _build_outputs(cues, outcome)
 
-    for lang, srt_text in outputs.items():
-        ctx.storage.save(
-            ctx.dev_user_id,
-            job_id,
-            f"output.{lang}.srt",
-            srt_text.encode("utf-8"),
-        )
+    try:
+        for lang, srt_text in outputs.items():
+            ctx.storage.save(
+                ctx.dev_user_id,
+                job_id,
+                f"output.{lang}.srt",
+                srt_text.encode("utf-8"),
+            )
 
-    with session_scope() as session:
-        row = session.get(Job, job_id)
-        if row is None:
-            logger.error("worker_loop: job %s vanished before landing", job_id)
-            return
-        row.status = "done"
-        row.progress = 1.0
-        row.error = None
-        row.finished_at = datetime.now(UTC)
-        session.add(row)
-        session.commit()
+        with session_scope() as session:
+            row = session.get(Job, job_id)
+            if row is None:
+                raise RuntimeError(f"job {job_id} vanished before landing")
+            row.status = "done"
+            row.progress = 1.0
+            row.error = None
+            row.error_kind = None
+            row.dropped_by_target = dropped_to_json(dropped)
+            row.finished_at = datetime.now(UTC)
+            session.add(row)
+            session.commit()
+    except Exception as exc:
+        raise LandingError(str(exc), dropped=dropped) from exc
+    if sum(dropped.values()) > 0:
+        logger.warning("worker_loop: job %s dropped cues by target: %s", job_id, dropped)
     ctx.notifier.notify_done(job_id)
 
 
-def _mark_failed(job_id: str, message: str) -> None:
+def _mark_failed(
+    job_id: str,
+    message: str,
+    kind: str,
+    dropped: dict[str, int] | None = None,
+) -> None:
     try:
         with session_scope() as session:
             row = session.get(Job, job_id)
@@ -377,19 +405,26 @@ def _mark_failed(job_id: str, message: str) -> None:
                 return
             row.status = "failed"
             row.error = message
+            row.error_kind = kind
+            if dropped is not None:
+                row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)
             session.add(row)
     except Exception:  # noqa: BLE001 — never raise from failure path
         logger.exception("worker_loop: failed to mark job %s as failed", job_id)
 
 
-def _build_outputs(cues: list[Cue], outcome: StreamOutcome) -> dict[str, str]:
+def _build_outputs(
+    cues: list[Cue], outcome: StreamOutcome
+) -> tuple[dict[str, str], dict[str, int]]:
     """Per-target SRT: clone cues, swap text with translated text by id."""
     by_id: dict[int, dict[str, Any]] = {
         int(seg["id"]): seg for seg in outcome.segments if "id" in seg
     }
     outputs: dict[str, str] = {}
+    dropped: dict[str, int] = {}
     for tgt in outcome.targets:
+        count = 0
         translated: list[Cue] = []
         for cue in cues:
             entry = by_id.get(cue.index)
@@ -398,8 +433,10 @@ def _build_outputs(cues: list[Cue], outcome: StreamOutcome) -> dict[str, str]:
                 translated.append(Cue(cue.index, cue.start, cue.end, text))
             else:
                 translated.append(cue)
+                count += 1
         outputs[tgt] = serialize(translated)
-    return outputs
+        dropped[tgt] = count
+    return outputs, dropped
 
 
 def enqueue_pending(ctx: JobContext, session: Session) -> int:

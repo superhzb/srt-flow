@@ -68,6 +68,12 @@ def test_full_flow_processes_to_done_with_download(client: Any, patched_worker: 
     assert body["status"] == "done", f"error: {body.get('error')}"
     assert body["progress"] == 1.0
     assert body["tgt_langs"] == ["fr"]
+    assert body["created_at"]
+    assert body["started_at"]
+    assert body["finished_at"]
+    assert body["attempts"] == 1
+    assert body["error_kind"] is None
+    assert body["dropped_by_target"] == {"fr": 0}
 
     # Result shape is the slice-3 contract: {lang, download_url}, no inline srt.
     results = body["results"]
@@ -222,6 +228,10 @@ def test_failed_job_records_error(client: Any, fake_worker: Any) -> None:
     body = _wait_for_status(client, job_id, {"done", "failed"})
     assert body["status"] == "failed"
     assert "boom" in body["error"]
+    assert body["error_kind"] == "worker_stream"
+    assert body["attempts"] == 1
+    assert body["started_at"] is not None
+    assert "dropped_by_target" not in body
     # No results on a failed job.
     assert "results" not in body
 

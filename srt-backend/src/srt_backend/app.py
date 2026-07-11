@@ -96,6 +96,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
       Stop the loop cleanly; the in-flight job is left ``processing`` and
       resumes next boot via the recover-scan.
     """
+    root_logger = logging.getLogger()
+    root_logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
+    if not root_logger.handlers:
+        root_logger.addHandler(logging.StreamHandler())
+
     ctx = _build_ctx()
     app.state.job_ctx = ctx
     app.state.worker_stop = asyncio.Event()

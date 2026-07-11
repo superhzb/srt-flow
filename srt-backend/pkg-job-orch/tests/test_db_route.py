@@ -80,7 +80,11 @@ def test_table_rows_are_paged_and_bounds_checked(route_db: str) -> None:
         "progress",
         "error",
         "created_at",
+        "started_at",
         "finished_at",
+        "error_kind",
+        "dropped_by_target",
+        "attempts",
     ]
     assert body["total"] == 25
     assert body["page"] == 1
