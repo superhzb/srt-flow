@@ -63,6 +63,7 @@ export interface JobStatusResponse {
   attempts: number;
   dropped_by_target?: Record<string, number>;
   results?: JobResult[];
+  stacked?: { default_order: string[]; download_url: string };
   error?: string;
 }
 
@@ -213,4 +214,16 @@ export async function fetchJobOutput(downloadUrl: string): Promise<string> {
   const resp = await fetch(downloadUrl);
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return await resp.text();
+}
+
+export function stackedDownloadUrl(jobId: string, order: string[]): string {
+  const params = new URLSearchParams({ langs: order.join(",") });
+  return `/api/jobs/${encodeURIComponent(jobId)}/download?${params}`;
+}
+
+export async function fetchStackedOutput(
+  jobId: string,
+  order: string[],
+): Promise<string> {
+  return fetchJobOutput(stackedDownloadUrl(jobId, order));
 }

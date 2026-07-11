@@ -10,6 +10,7 @@ import {
 } from "./api.ts";
 import { ErrorBanner, RefreshButton, SrtPreview } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
+import { StackedOutput } from "./StackedOutput.tsx";
 
 // History table from GET /api/jobs — the first thing persistence buys the
 // user (PLAN.md slice 3). Clicking a row opens a detail panel that polls
@@ -219,6 +220,13 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
           </div>
           {body.dropped_by_target && (
             <DroppedCounts counts={body.dropped_by_target} />
+          )}
+          {body.status === "done" && (
+            <StackedOutput
+              jobId={jobId}
+              sourceLang={body.src_lang}
+              targetLangs={body.tgt_langs}
+            />
           )}
           {body.results && body.results.length > 0 && (
             <ResultsList results={body.results} />

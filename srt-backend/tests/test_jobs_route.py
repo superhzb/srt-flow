@@ -115,6 +115,10 @@ def test_full_flow_processes_to_done_with_download(client: Any, patched_worker: 
     # Result shape is the slice-3 contract: {lang, download_url}, no inline srt.
     results = body["results"]
     assert results == [{"lang": "fr", "download_url": f"/api/jobs/{job_id}/download?lang=fr"}]
+    assert body["stacked"] == {
+        "default_order": ["en", "fr"],
+        "download_url": f"/api/jobs/{job_id}/download?langs=en%2Cfr",
+    }
 
     # Download streams the file.
     dl = client.get(results[0]["download_url"])
@@ -217,6 +221,70 @@ def test_download_404_for_unknown_lang(client: Any, patched_worker: Any) -> None
 
     dl = client.get(f"/api/jobs/{job_id}/download?lang=de")
     assert dl.status_code == 404
+
+
+def test_stacked_download_contract(client: Any, patched_worker: Any) -> None:
+    resp = client.post(
+        "/api/jobs",
+        json={
+            "cues": [CUE_EN],
+            "source_lang": "en",
+            "targets": ["fr", "de"],
+            "worker": "mlx",
+        },
+    )
+    job_id = resp.json()["job_id"]
+    body = _wait_for_status(client, job_id, {"done", "failed"})
+    assert body["status"] == "done"
+
+    missing = client.get(f"/api/jobs/{job_id}/download")
+    assert missing.status_code == 400
+    assert missing.json()["detail"] == "lang or langs required"
+
+    unknown = client.get(f"/api/jobs/{job_id}/download?langs=fr,xx")
+    assert unknown.status_code == 400
+    assert unknown.json()["detail"] == "unknown language xx for this job"
+
+    empty = client.get(f"/api/jobs/{job_id}/download?langs=,,%20")
+    assert empty.status_code == 400
+    assert empty.json()["detail"] == "at least one language required"
+
+    stacked = client.get(f"/api/jobs/{job_id}/download?lang=xx&langs=%20fr%20,,de,fr")
+    assert stacked.status_code == 200
+    assert stacked.text.splitlines()[2:4] == ["[fr] Hello", "[de] Hello"]
+    assert stacked.headers["content-disposition"] == (
+        f'attachment; filename="{job_id}.stacked.srt"'
+    )
+
+    source_only = client.get(f"/api/jobs/{job_id}/download?langs=en")
+    assert source_only.status_code == 200
+    assert source_only.text.splitlines()[2] == "Hello"
+
+    monolingual = client.get(f"/api/jobs/{job_id}/download?lang=fr")
+    assert monolingual.status_code == 200
+    assert monolingual.text.splitlines()[2] == "[fr] Hello"
+
+
+def test_stacked_download_conflict_before_done(client: Any) -> None:
+    class _HangingClient:
+        async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            import asyncio as _a
+
+            await _a.sleep(30)
+
+    client.app.state.job_ctx.worker_client = _HangingClient()  # type: ignore[method-assign]
+    resp = client.post(
+        "/api/jobs",
+        json={
+            "cues": [CUE_EN],
+            "source_lang": "en",
+            "targets": ["fr"],
+            "worker": "mlx",
+        },
+    )
+    job_id = resp.json()["job_id"]
+    _wait_for_status(client, job_id, {"processing"})
+    assert client.get(f"/api/jobs/{job_id}/download?langs=en,fr").status_code == 409
 
 
 def test_download_conflict_before_done(client: Any, fake_worker: Any) -> None:

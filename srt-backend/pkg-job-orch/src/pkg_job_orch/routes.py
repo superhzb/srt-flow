@@ -10,10 +10,11 @@ Mounted under ``/api`` by the app: ``POST /jobs``, ``GET /jobs``,
 from __future__ import annotations
 
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pkg_srt_services.api import Cue, dict_to_cue
+from pkg_srt_services.api import Cue, build_stacked_srt, dict_to_cue, parse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel import col, select
 
@@ -117,13 +118,20 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
         if job.dropped_by_target is not None:
             out["dropped_by_target"] = dropped_from_json(job.dropped_by_target)
         if job.status == "done":
+            targets = tgt_langs_from_csv(job.tgt_langs)
             out["results"] = [
                 {
                     "lang": lang,
                     "download_url": f"/api/jobs/{job.id}/download?lang={lang}",
                 }
-                for lang in tgt_langs_from_csv(job.tgt_langs)
+                for lang in targets
             ]
+            default_order = [job.src_lang, *targets]
+            query = urlencode({"langs": ",".join(default_order)})
+            out["stacked"] = {
+                "default_order": default_order,
+                "download_url": f"/api/jobs/{job.id}/download?{query}",
+            }
         return out
 
 
@@ -131,7 +139,8 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
 async def download_job(
     request: Request,
     job_id: str,
-    lang: Annotated[str, Query(description="Target language to download")],
+    lang: Annotated[str | None, Query(description="Target language to download")] = None,
+    langs: Annotated[str | None, Query(description="Ordered languages to stack")] = None,
 ) -> StreamingResponse:
     ctx = request.app.state.job_ctx
     with session_scope() as session:
@@ -144,21 +153,62 @@ async def download_job(
                 detail=f"job is {job.status}, not done",
             )
         targets = tgt_langs_from_csv(job.tgt_langs)
-        if lang not in targets:
+        source_lang = job.src_lang
+        if langs is None and lang is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="lang or langs required",
+            )
+        if langs is None and lang not in targets:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"job has no output for language {lang!r}",
             )
 
-    try:
-        data = ctx.storage.get(ctx.dev_user_id, job_id, f"output.{lang}.srt")
-    except Exception as exc:  # noqa: BLE001 — surface storage failure as 404/500
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"output file missing: {exc}",
-        ) from exc
+    if langs is not None:
+        order = list(dict.fromkeys(part.strip() for part in langs.split(",") if part.strip()))
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="at least one language required",
+            )
+        valid = {source_lang, *targets}
+        for requested_lang in order:
+            if requested_lang not in valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"unknown language {requested_lang} for this job",
+                )
+        try:
+            source_data = ctx.storage.get(ctx.dev_user_id, job_id, "input.srt")
+            source_cues = parse(source_data.decode("utf-8"))
+            target_texts: dict[str, dict[int, str]] = {}
+            for requested_lang in order:
+                if requested_lang == source_lang:
+                    continue
+                target_data = ctx.storage.get(
+                    ctx.dev_user_id, job_id, f"output.{requested_lang}.srt"
+                )
+                target_texts[requested_lang] = {
+                    cue.index: cue.text for cue in parse(target_data.decode("utf-8"))
+                }
+        except Exception as exc:  # noqa: BLE001 — storage/parse miss is unavailable output
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"output file missing: {exc}",
+            ) from exc
+        data = build_stacked_srt(source_lang, source_cues, target_texts, order).encode()
+        filename = f"{job_id}.stacked.srt"
+    else:
+        try:
+            data = ctx.storage.get(ctx.dev_user_id, job_id, f"output.{lang}.srt")
+        except Exception as exc:  # noqa: BLE001 — surface storage failure as 404/500
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"output file missing: {exc}",
+            ) from exc
+        filename = f"{job_id}.{lang}.srt"
 
-    filename = f"{job_id}.{lang}.srt"
     return StreamingResponse(
         iter([data]),
         media_type="text/plain",

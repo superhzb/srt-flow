@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from pkg_srt_services.api import Cue, ParseError, parse, serialize
+from pkg_srt_services.api import Cue, ParseError, build_stacked_srt, parse, serialize
 
 SIMPLE = """1
 00:00:01,000 --> 00:00:04,074
@@ -92,3 +92,41 @@ def test_serialize_empty_text_raises() -> None:
     cue = Cue(index=1, start="00:00:01,000", end="00:00:02,000", text="   ")
     with pytest.raises(ParseError):
         serialize([cue])
+
+
+def test_build_stacked_srt_respects_order_and_source_inclusion() -> None:
+    cues = parse(SIMPLE)
+    result = build_stacked_srt(
+        "en",
+        cues,
+        {
+            "fr": {1: "Bonjour", 2: "Deuxième"},
+            "zh-Hans": {1: "你好", 2: "第二个"},
+        },
+        ["zh-Hans", "en", "fr"],
+    )
+    stacked = parse(result)
+    assert stacked[0].text == "你好\nHello world\nBonjour"
+    assert stacked[1].text == "第二个\nSecond cue\nspans two lines\nDeuxième"
+    assert [cue.index for cue in stacked] == [1, 2]
+
+
+def test_build_stacked_srt_can_exclude_source_and_omit_missing_target() -> None:
+    cues = parse(SIMPLE)
+    result = build_stacked_srt(
+        "en",
+        cues,
+        {"fr": {1: "Bonjour"}, "de": {1: "Hallo", 2: "Zweite"}},
+        ["fr", "de"],
+    )
+    stacked = parse(result)
+    assert stacked[0].text == "Bonjour\nHallo"
+    assert stacked[1].text == "Zweite"
+
+
+def test_build_stacked_srt_rejects_unknown_or_empty_order() -> None:
+    cues = parse(SIMPLE)
+    with pytest.raises(ValueError, match="unknown language 'de'"):
+        build_stacked_srt("en", cues, {"fr": {}}, ["de"])
+    with pytest.raises(ValueError, match="at least one language required"):
+        build_stacked_srt("en", cues, {"fr": {}}, [])
