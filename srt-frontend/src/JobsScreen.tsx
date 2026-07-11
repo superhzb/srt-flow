@@ -42,7 +42,7 @@ export function JobsScreen() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Jobs</h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             History of translation jobs (dev user).
           </p>
         </div>
@@ -52,17 +52,17 @@ export function JobsScreen() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {jobs === null && !error && (
-        <p className="text-sm text-slate-600">Loading…</p>
+        <p className="text-sm text-ink-muted">Loading…</p>
       )}
 
       {jobs !== null && jobs.length === 0 && (
-        <p className="text-sm text-slate-600">No jobs yet.</p>
+        <p className="text-sm text-ink-muted">No jobs yet.</p>
       )}
 
       {jobs !== null && jobs.length > 0 && (
-        <div className="overflow-auto rounded-lg border border-slate-200">
+        <div className="overflow-auto rounded-lg border border-border">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-slate-600">
+            <thead className="bg-surface-inset text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left">job</th>
                 <th className="px-3 py-2 text-left">status</th>
@@ -88,8 +88,8 @@ export function JobsScreen() {
                         setSelectedId(j.id);
                       }
                     }}
-                    className={`border-t border-slate-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 hover:bg-slate-50 ${
-                      active ? "bg-indigo-50" : ""
+                    className={`border-t border-border cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent hover:bg-surface-subtle ${
+                      active ? "bg-accent-soft" : ""
                     }`}
                   >
                     <td className="px-3 py-2 font-mono text-xs">
@@ -97,7 +97,7 @@ export function JobsScreen() {
                         {j.filename ?? j.id.slice(0, 8)}
                       </span>
                       {j.filename && (
-                        <span className="ml-2 text-slate-400">
+                        <span className="ml-2 text-faint">
                           {j.id.slice(0, 8)}
                         </span>
                       )}
@@ -107,18 +107,18 @@ export function JobsScreen() {
                     </td>
                     <td className="px-3 py-2">{j.worker}</td>
                     <td className="px-3 py-2 font-mono text-xs">
-                      <span className="text-slate-700">{j.src_lang}</span>
-                      <span className="text-slate-400"> → </span>
+                      <span className="text-ink-muted">{j.src_lang}</span>
+                      <span className="text-faint"> → </span>
                       {j.tgt_langs.join(", ")}
                     </td>
                     <td className="px-3 py-2 tabular-nums">
                       {(j.progress * 100).toFixed(0)}%
                     </td>
                     <td className="px-3 py-2 tabular-nums">{j.attempts}</td>
-                    <td className="px-3 py-2 text-xs tabular-nums text-slate-600">
+                    <td className="px-3 py-2 text-xs tabular-nums text-ink-muted">
                       {formatElapsed(j.created_at, j.started_at)}
                     </td>
-                    <td className="px-3 py-2 text-xs text-slate-500">
+                    <td className="px-3 py-2 text-xs text-faint">
                       {new Date(j.created_at).toLocaleString()}
                     </td>
                   </tr>
@@ -143,8 +143,8 @@ function StatusBadge({ status }: { status: JobStatus }) {
       : status === "failed"
         ? "bg-red-100 text-red-800"
         : status === "processing"
-          ? "bg-indigo-100 text-indigo-800"
-          : "bg-slate-100 text-slate-700";
+          ? "bg-accent-soft text-accent-deep"
+          : "bg-surface-inset text-ink-muted";
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${tone}`}>
       {status}
@@ -160,7 +160,7 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
   );
 
   return (
-    <div className="rounded-lg border border-slate-300 p-4 space-y-3 bg-white">
+    <div className="rounded-lg border border-border p-4 space-y-3 bg-surface">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold">
           Job <span className="font-mono text-sm">{jobId.slice(0, 8)}</span>
@@ -168,7 +168,7 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="text-sm text-slate-500 hover:text-slate-800"
+          className="text-sm text-faint hover:text-ink"
         >
           close
         </button>
@@ -176,7 +176,7 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
       {error && <p className="text-sm text-red-700">{error}</p>}
       {body && (
         <>
-          <div className="text-sm text-slate-700 space-y-1">
+          <div className="text-sm text-ink-muted space-y-1">
             <div>
               status: <StatusBadge status={body.status} />
             </div>
@@ -225,7 +225,9 @@ function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
             <StackedOutput
               jobId={jobId}
               sourceLang={body.src_lang}
-              targetLangs={body.tgt_langs}
+              targetLangs={body.tgt_langs.filter(
+                (target) => target !== body.src_lang,
+              )}
             />
           )}
           {body.results && body.results.length > 0 && (
@@ -241,7 +243,7 @@ function Timestamp({ value }: { value: string | null }) {
   return value ? (
     <span className="tabular-nums">{new Date(value).toLocaleString()}</span>
   ) : (
-    <span className="text-slate-400">—</span>
+    <span className="text-faint">—</span>
   );
 }
 
@@ -253,7 +255,7 @@ function DroppedCounts({ counts }: { counts: Record<string, number> }) {
       className={`rounded-md border p-3 text-sm ${
         total > 0
           ? "border-amber-300 bg-amber-50 text-amber-900"
-          : "border-slate-200 bg-slate-50 text-slate-700"
+          : "border-border bg-surface-subtle text-ink-muted"
       }`}
     >
       <p className="font-medium">Dropped cues: {total}</p>
@@ -283,7 +285,7 @@ function formatElapsed(start: string | null, end: string | null): string {
 function ResultsList({ results }: { results: JobResult[] }) {
   return (
     <div className="space-y-1">
-      <p className="text-sm font-medium text-slate-700">Outputs:</p>
+      <p className="text-sm font-medium text-ink-muted">Outputs:</p>
       <ul className="text-sm space-y-1">
         {results.map((r) => (
           <li key={r.lang} className="flex items-center gap-2">
@@ -291,7 +293,7 @@ function ResultsList({ results }: { results: JobResult[] }) {
             <a
               href={r.download_url}
               download
-              className="text-indigo-600 hover:underline text-sm"
+              className="text-accent hover:underline text-sm"
             >
               download
             </a>

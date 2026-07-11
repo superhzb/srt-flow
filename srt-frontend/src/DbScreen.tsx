@@ -77,7 +77,7 @@ export function DbScreen() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Database</h2>
-          <p className="text-sm text-slate-600">Raw rows for development.</p>
+          <p className="text-sm text-ink-muted">Raw rows for development.</p>
         </div>
         <div className="flex gap-2">
           <RefreshButton onClick={loadTables} />
@@ -85,7 +85,7 @@ export function DbScreen() {
             type="button"
             onClick={handleClear}
             disabled={clearing}
-            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md border border-red-300 bg-surface px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {clearing ? "Clearing..." : "Clear all data"}
           </button>
@@ -95,7 +95,7 @@ export function DbScreen() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {tables === null && !error && (
-        <p className="text-sm text-slate-600">Loading...</p>
+        <p className="text-sm text-ink-muted">Loading...</p>
       )}
 
       {tables?.map((table) => (
@@ -131,41 +131,41 @@ function TableSection({
           <h3 className="font-semibold">
             <span className="font-mono">{table.name}</span>
           </h3>
-          <p className="text-sm text-slate-600">{total} rows</p>
+          <p className="text-sm text-ink-muted">{total} rows</p>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <button
             type="button"
             onClick={() => onPage(currentPage - 1)}
             disabled={!canPrev}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 font-medium hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
           >
             Prev
           </button>
-          <span className="min-w-28 text-center text-slate-600">
+          <span className="min-w-28 text-center text-ink-muted">
             page {currentPage + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
           </span>
           <button
             type="button"
             onClick={() => onPage(currentPage + 1)}
             disabled={!canNext}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 font-medium hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next
           </button>
         </div>
       </div>
 
-      {!page && <p className="text-sm text-slate-600">Loading...</p>}
+      {!page && <p className="text-sm text-ink-muted">Loading...</p>}
 
       {page && page.rows.length === 0 && (
-        <p className="text-sm text-slate-600">No rows.</p>
+        <p className="text-sm text-ink-muted">No rows.</p>
       )}
 
       {page && page.rows.length > 0 && (
-        <div className="overflow-auto rounded-lg border border-slate-200">
+        <div className="overflow-auto rounded-lg border border-border">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-slate-600">
+            <thead className="bg-surface-inset text-ink-muted">
               <tr>
                 {page.columns.map((column) => (
                   <th key={column} className="px-3 py-2 text-left">
@@ -178,7 +178,7 @@ function TableSection({
               {page.rows.map((row, index) => (
                 <tr
                   key={String(row.id ?? index)}
-                  className="border-t border-slate-100"
+                  className="border-t border-border-subtle"
                 >
                   {page.columns.map((column) => (
                     <td

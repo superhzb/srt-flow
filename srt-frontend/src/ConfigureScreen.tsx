@@ -10,6 +10,51 @@ import {
 } from "./api.ts";
 import { CuesView } from "./CuesView.tsx";
 import { ErrorBanner } from "./components.tsx";
+import {
+  Button,
+  Card,
+  Input,
+  MonoLabel,
+  SectionHeader,
+  Select,
+} from "./ui.tsx";
+
+const REGIONS: Record<string, string> = {
+  en: "🇺🇸",
+  fr: "🇫🇷",
+  es: "🇪🇸",
+  de: "🇩🇪",
+  it: "🇮🇹",
+  pt: "🇵🇹",
+  ja: "🇯🇵",
+  ko: "🇰🇷",
+  zh: "🇨🇳",
+  ar: "🇸🇦",
+  hi: "🇮🇳",
+  ru: "🇷🇺",
+  nl: "🇳🇱",
+  pl: "🇵🇱",
+  tr: "🇹🇷",
+};
+const NATIVE_NAMES: Record<string, string> = {
+  en: "English",
+  fr: "Français",
+  es: "Español",
+  de: "Deutsch",
+  it: "Italiano",
+  pt: "Português",
+  ja: "日本語",
+  ko: "한국어",
+  zh: "中文",
+  ar: "العربية",
+  hi: "हिन्दी",
+  ru: "Русский",
+  nl: "Nederlands",
+  pl: "Polski",
+  tr: "Türkçe",
+  uk: "Українська",
+};
+const RECENTS_KEY = "srtflow.recentLangs";
 
 export interface FileEntry {
   id: string;
@@ -29,6 +74,7 @@ interface Props {
   onRetry: (id: string) => void;
   onProcess: (workerId: string, targets: string[]) => void;
   onBack: () => void;
+  readOnly?: boolean;
 }
 
 export function ConfigureScreen({
@@ -38,12 +84,21 @@ export function ConfigureScreen({
   onRetry,
   onProcess,
   onBack,
+  readOnly = false,
 }: Props) {
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
   const [workerId, setWorkerId] = useState("");
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [targets, setTargets] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [recents, setRecents] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -106,27 +161,47 @@ export function ConfigureScreen({
     (worker !== undefined && !worker.healthy);
 
   function toggleTarget(code: string) {
+    if (readOnly) return;
     setTargets((previous) => {
       const next = new Set(previous);
       if (next.has(code)) next.delete(code);
       else next.add(code);
       return next;
     });
+    setRecents((current) => {
+      const next = [code, ...current.filter((x) => x !== code)].slice(0, 8);
+      try {
+        localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+      } catch {
+        /* unavailable */
+      }
+      return next;
+    });
   }
 
+  const visibleLanguages = languages.filter((language) =>
+    `${language.name} ${NATIVE_NAMES[language.code] ?? ""} ${language.code}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+
   return (
-    <section className="mt-6 space-y-5">
+    <section className="mt-6 space-y-6 rise">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Configure batch</h2>
-          <p className="text-sm text-slate-600">
+          <SectionHeader
+            index="Step 2 / 4"
+            title="Target languages"
+            detail="One target set, a detected source for every file."
+          />
+          <p className="sr-only">
             One worker and target set, with a source language per file.
           </p>
         </div>
         <button
           type="button"
           onClick={onBack}
-          className="text-sm text-slate-600 underline"
+          className="text-sm text-ink-muted underline"
         >
           start over
         </button>
@@ -136,10 +211,10 @@ export function ConfigureScreen({
 
       <div>
         <label className="mb-1 block text-sm font-medium">Worker</label>
-        <select
+        <Select
           value={workerId}
+          disabled={readOnly}
           onChange={(event) => setWorkerId(event.target.value)}
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
         >
           {workers.length === 0 && <option value="">loading…</option>}
           {workers.map((item) => (
@@ -147,28 +222,78 @@ export function ConfigureScreen({
               {item.label} {item.healthy ? "" : "(unreachable)"}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div>
-        <p className="mb-1 text-sm font-medium">Shared target languages</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {languages.map((language) => {
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">Shared target languages</p>
+            <MonoLabel>{targets.size} selected</MonoLabel>
+          </div>
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search languages…"
+            aria-label="Search languages"
+            className="max-w-xs"
+            disabled={readOnly}
+          />
+        </div>
+        {!query && recents.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <MonoLabel>recent</MonoLabel>
+            {recents.map((code) => {
+              const l = languages.find((x) => x.code === code);
+              return l ? (
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  key={code}
+                  onClick={() => toggleTarget(code)}
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs"
+                >
+                  {REGIONS[code] ?? code.toUpperCase()} {l.name}
+                  {NATIVE_NAMES[code] && NATIVE_NAMES[code] !== l.name
+                    ? ` · ${NATIVE_NAMES[code]}`
+                    : ""}
+                </button>
+              ) : null;
+            })}
+          </div>
+        )}
+        <div className="grid max-h-72 grid-cols-2 gap-2 overflow-auto rounded-xl bg-surface-inset p-2 sm:grid-cols-3">
+          {visibleLanguages.map((language) => {
             const checked = targets.has(language.code);
             return (
               <label
                 key={language.code}
-                className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white"}`}
+                className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${readOnly ? "cursor-default opacity-75" : "cursor-pointer"} ${checked ? "border-accent bg-accent-soft" : "border-border bg-surface"}`}
               >
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={readOnly}
                   onChange={() => toggleTarget(language.code)}
                 />
-                {language.name}{" "}
-                <span className="font-mono text-xs text-slate-500">
-                  {language.code}
+                <span aria-hidden="true">
+                  {REGIONS[language.code] ?? language.code.toUpperCase()}
                 </span>
+                <span className="min-w-0">
+                  <span>{language.name}</span>
+                  {NATIVE_NAMES[language.code] &&
+                    NATIVE_NAMES[language.code] !== language.name && (
+                      <span className="ml-1 text-xs text-ink-muted">
+                        {NATIVE_NAMES[language.code]}
+                      </span>
+                    )}
+                </span>
+                {checked && (
+                  <span className="ml-auto text-accent-deep" aria-hidden="true">
+                    ✓
+                  </span>
+                )}
               </label>
             );
           })}
@@ -185,21 +310,18 @@ export function ConfigureScreen({
             targets.size > 0 &&
             effectiveTargets.length === 0;
           return (
-            <article
-              key={entry.id}
-              className="rounded-lg border border-slate-200 bg-white p-4"
-            >
+            <Card key={entry.id} className="p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-medium">{entry.name}</p>
                   {entry.status === "parsing" && (
-                    <p className="text-sm text-slate-500">Parsing…</p>
+                    <p className="text-sm text-faint">Parsing…</p>
                   )}
                   {entry.status === "error" && (
                     <p className="text-sm text-red-700">{entry.error}</p>
                   )}
                   {entry.prepare && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-faint">
                       {entry.prepare.count} cues · detected{" "}
                       {entry.prepare.detected_lang ?? "unknown"} (
                       {(entry.prepare.confidence * 100).toFixed(0)}%) ·{" "}
@@ -217,6 +339,7 @@ export function ConfigureScreen({
                   {entry.status === "error" && (
                     <button
                       type="button"
+                      disabled={readOnly}
                       onClick={() => onRetry(entry.id)}
                       className="text-sm underline"
                     >
@@ -225,8 +348,9 @@ export function ConfigureScreen({
                   )}
                   <button
                     type="button"
+                    disabled={readOnly}
                     onClick={() => onRemove(entry.id)}
-                    className="text-sm text-slate-600 underline"
+                    className="text-sm text-ink-muted underline"
                   >
                     remove
                   </button>
@@ -236,12 +360,13 @@ export function ConfigureScreen({
                 <>
                   <label className="mt-3 block text-sm font-medium">
                     Source language
-                    <select
+                    <Select
                       value={entry.sourceLang ?? ""}
+                      disabled={readOnly}
                       onChange={(event) =>
                         onSourceChange(entry.id, event.target.value)
                       }
-                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                      className="mt-1"
                     >
                       <option value="">(pick a source language)</option>
                       {languages.map((language) => (
@@ -249,10 +374,10 @@ export function ConfigureScreen({
                           {language.name} ({language.code})
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-sm text-slate-600">
+                    <summary className="cursor-pointer text-sm text-ink-muted">
                       preview parsed cues
                     </summary>
                     <CuesView
@@ -264,21 +389,22 @@ export function ConfigureScreen({
                   </details>
                 </>
               )}
-            </article>
+            </Card>
           );
         })}
       </div>
 
-      <button
+      <Button
         type="button"
-        disabled={disabled}
+        disabled={disabled || readOnly}
         onClick={() => onProcess(workerId, [...targets])}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {parsingCount > 0
-          ? `Waiting for ${parsingCount} files to parse…`
-          : `Process ${processable.length} files${skippedCount ? ` · ${skippedCount} skipped` : ""}`}
-      </button>
+        {readOnly
+          ? "Run settings locked"
+          : parsingCount > 0
+            ? `Waiting for ${parsingCount} files to parse…`
+            : `Process ${processable.length} files${skippedCount ? ` · ${skippedCount} skipped` : ""}`}
+      </Button>
     </section>
   );
 }

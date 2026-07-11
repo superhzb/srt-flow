@@ -109,7 +109,7 @@ export function BillingScreen({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Billing</h2>
-          <p className="text-sm text-slate-600">Plan status and checkout.</p>
+          <p className="text-sm text-ink-muted">Plan status and checkout.</p>
         </div>
         <RefreshButton onClick={refresh} loading={state.kind === "loading"} />
       </div>
@@ -119,7 +119,7 @@ export function BillingScreen({
       {confirmError && <ErrorBanner>{confirmError}</ErrorBanner>}
 
       {confirmation?.kind === "confirming" && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800">
+        <div className="rounded-lg border border-accent bg-accent-soft p-3 text-sm text-accent-deep">
           Confirming your payment...
         </div>
       )}
@@ -130,16 +130,16 @@ export function BillingScreen({
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="rounded-lg border border-border bg-surface p-4">
         {state.kind === "loading" && (
-          <p className="text-sm text-slate-600">Loading...</p>
+          <p className="text-sm text-ink-muted">Loading...</p>
         )}
 
         {state.kind === "ready" && state.me === null && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-semibold">Not authenticated</h3>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Log in before opening Stripe checkout.
               </p>
             </div>
@@ -148,7 +148,7 @@ export function BillingScreen({
               onClick={() => {
                 window.location.href = googleLoginUrl();
               }}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
             >
               Login
             </button>
@@ -160,9 +160,7 @@ export function BillingScreen({
             <div>
               <h3 className="font-semibold">Free plan</h3>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-mono text-slate-800">
-                  {state.me.email}
-                </span>
+                <span className="font-mono text-ink">{state.me.email}</span>
                 <TierBadge tier={state.me.tier} />
               </div>
             </div>
@@ -170,7 +168,7 @@ export function BillingScreen({
               type="button"
               onClick={() => void handleUpgrade()}
               disabled={checkoutLoading || confirmation?.kind === "confirming"}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:cursor-not-allowed disabled:opacity-60"
             >
               {confirmation?.kind === "confirming"
                 ? "Confirming..."
@@ -185,7 +183,7 @@ export function BillingScreen({
           <div>
             <h3 className="font-semibold">You're on the paid plan</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-              <span className="font-mono text-slate-800">{state.me.email}</span>
+              <span className="font-mono text-ink">{state.me.email}</span>
               <TierBadge tier={state.me.tier} />
             </div>
           </div>

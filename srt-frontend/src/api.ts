@@ -47,6 +47,11 @@ export interface JobResult {
   lang: string;
   download_url: string;
 }
+export interface TargetProgress {
+  lang: string;
+  status: "queued" | "running" | "done";
+  progress: number;
+}
 
 export interface JobStatusResponse {
   id: string;
@@ -65,6 +70,8 @@ export interface JobStatusResponse {
   results?: JobResult[];
   stacked?: { default_order: string[]; download_url: string };
   error?: string;
+  targets?: TargetProgress[];
+  eta_seconds?: number | null;
 }
 
 export interface JobSummary {

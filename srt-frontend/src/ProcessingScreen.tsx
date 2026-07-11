@@ -1,96 +1,118 @@
-import { useEffect, useState } from "react";
-
-import { pollJob, type JobResult, type JobStatusResponse } from "./api.ts";
+import { useEffect, useRef } from "react";
+import { pollJob, type JobStatusResponse, type TargetProgress } from "./api.ts";
 import { usePoll } from "./hooks.ts";
-
-interface Props {
-  fileName: string;
-  workerLabel: string;
-  sourceLang: string;
-  targets: string[];
-  jobId: string;
-  onDone: (results: JobResult[]) => void;
-  onError: (message: string) => void;
-}
-
-function isTerminal(body: JobStatusResponse) {
-  return body.status === "done" || body.status === "failed";
-}
+import { Card, MonoLabel, SectionHeader } from "./ui.tsx";
 
 export function ProcessingScreen({
-  fileName,
-  workerLabel,
-  sourceLang,
-  targets,
-  jobId,
-  onDone,
-  onError,
-}: Props) {
-  const { result, error, terminal } = usePoll(() => pollJob(jobId), isTerminal);
-  const [progress, setProgress] = useState(0);
-  const [statusLabel, setStatusLabel] = useState("starting…");
-
-  useEffect(() => {
-    if (result) {
-      setProgress(result.progress);
-      if (result.status === "done") {
-        setStatusLabel("done");
-        setProgress(1);
-      } else if (result.status === "failed") {
-        setStatusLabel("failed");
-      } else {
-        setStatusLabel(
-          result.status === "processing"
-            ? `translating · ${(result.progress * 100).toFixed(0)}%`
-            : "queued…",
-        );
-      }
-    }
-  }, [result]);
-
-  // Fire the terminal callback exactly once.
-  useEffect(() => {
-    if (!terminal) return;
-    if (error) {
-      onError(error);
-    } else if (result?.status === "done" && result.results) {
-      onDone(result.results);
-    } else if (result?.status === "failed") {
-      onError(result.error ?? "translation failed");
-    }
-  }, [terminal, error, result, onDone, onError]);
-
-  const pct = Math.round(progress * 100);
-
+  jobs,
+  onJobTerminal,
+}: {
+  jobs: { jobId: string; name: string }[];
+  onJobTerminal: (jobId: string, result: JobStatusResponse) => void;
+}) {
   return (
-    <section className="mt-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">Translating</h2>
-        <p className="text-sm text-slate-600">
-          <span className="font-medium">{fileName}</span> · {workerLabel} ·{" "}
-          <span className="font-mono">{sourceLang}</span> →{" "}
-          <span className="font-mono">{targets.join(", ")}</span>
-        </p>
+    <section className="mt-6 space-y-5 rise">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader
+          index="Step 3 / 4"
+          title="Translations are flowing"
+          detail="You can leave—your jobs keep running safely in the background."
+        />
+        <MonoLabel>{jobs.length} jobs queued</MonoLabel>
       </div>
-      <div className="space-y-1">
-        <div
-          className="h-3 rounded-full bg-slate-200 overflow-hidden"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={pct}
-          aria-label="translation progress"
-        >
-          <div
-            className="h-full bg-indigo-600 transition-[width] duration-300 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-slate-600">
-          <span>{statusLabel}</span>
-          <span className="tabular-nums">{pct}%</span>
-        </div>
+      <div className="space-y-3">
+        {jobs.map((j) => (
+          <JobProgress key={j.jobId} {...j} onTerminal={onJobTerminal} />
+        ))}
       </div>
     </section>
   );
+}
+function JobProgress({
+  jobId,
+  name,
+  onTerminal,
+}: {
+  jobId: string;
+  name: string;
+  onTerminal: (jobId: string, result: JobStatusResponse) => void;
+}) {
+  const emitted = useRef(false);
+  const { result, error, terminal } = usePoll(
+    () => pollJob(jobId),
+    (x) => x.status === "done" || x.status === "failed",
+    { immediateFirst: true },
+  );
+  useEffect(() => {
+    if (terminal && result && !emitted.current) {
+      emitted.current = true;
+      onTerminal(jobId, result);
+    }
+  }, [jobId, result, terminal, onTerminal]);
+  const pct = Math.round((result?.progress ?? 0) * 100);
+  return (
+    <Card className="p-4">
+      <div className="flex justify-between gap-3">
+        <div>
+          <p className="font-medium">{name}</p>
+          <p className="font-mono text-[11px] text-faint">
+            {result?.status ?? "connecting"} · {formatEta(result)}
+          </p>
+        </div>
+        <strong className="font-mono text-sm text-accent-deep">{pct}%</strong>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={`${name} progress`}
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className="mt-3 h-2 overflow-hidden rounded-full bg-surface-inset"
+      >
+        <div
+          className="flow-progress h-full rounded-full transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {result?.targets && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {result.targets.map((t) => (
+            <TargetRow key={t.lang} target={t} />
+          ))}
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </Card>
+  );
+}
+function TargetRow({ target }: { target: TargetProgress }) {
+  const pct = Math.round(target.progress * 100);
+  return (
+    <div className="rounded-lg bg-surface-subtle px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full ${target.status === "done" ? "bg-ok" : target.status === "running" ? "bg-accent animate-pulse" : "bg-faint"}`}
+        />
+        <span className="font-mono text-xs uppercase">{target.lang}</span>
+        <span className="ml-auto text-xs text-ink-muted">
+          {target.status === "done"
+            ? "done"
+            : target.status === "running"
+              ? `${pct}%`
+              : "queued"}
+        </span>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-inset">
+        <div
+          className="flow-progress h-full rounded-full transition-[width]"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+function formatEta(job?: JobStatusResponse | null) {
+  if (!job || job.eta_seconds == null) return "estimating…";
+  if (job.eta_seconds < 60) return `about ${Math.ceil(job.eta_seconds)}s left`;
+  return `about ${Math.ceil(job.eta_seconds / 60)}m left`;
 }

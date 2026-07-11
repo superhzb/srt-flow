@@ -24,7 +24,7 @@ export function TierBadge({ tier }: { tier: "free" | "paid" }) {
   const classes =
     tier === "paid"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : "border-slate-200 bg-slate-50 text-slate-700";
+      : "border-border bg-surface-subtle text-ink-muted";
   return (
     <span
       className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}
@@ -49,7 +49,7 @@ export function RefreshButton({
       type="button"
       onClick={onClick}
       disabled={loading}
-      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60"
     >
       {loading ? "Refreshing..." : children}
     </button>
@@ -76,7 +76,7 @@ export function SrtPreview({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="text-xs text-slate-500 hover:text-slate-800"
+        className="text-xs text-faint hover:text-ink"
       >
         {open ? "hide" : label}
       </button>
@@ -84,10 +84,10 @@ export function SrtPreview({
         <p className="text-xs text-red-700 mt-1">{error}</p>
       )}
       {open && error === null && text === null && (
-        <p className="text-xs text-slate-500 mt-1">loading…</p>
+        <p className="text-xs text-faint mt-1">loading…</p>
       )}
       {open && text !== null && (
-        <pre className="mt-1 bg-slate-900 text-slate-100 p-2 rounded text-xs overflow-auto max-h-48">
+        <pre className="mt-1 bg-[#090a0d] text-white p-2 rounded text-xs overflow-auto max-h-48">
           {text}
         </pre>
       )}
