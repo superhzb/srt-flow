@@ -7,6 +7,7 @@ translation jobs, auth, billing, and artifact download.
 ## Dev
 
 ```bash
+cp .env.example .env
 uv venv --python 3.12
 uv pip install -e ".[dev]"   # note: dev deps listed as dependency-group, see below
 uv sync                       # preferred, resolves workspace pkgs
@@ -15,6 +16,10 @@ uv run ruff check .
 uv run pyright
 uv run uvicorn srt_backend.app:api --reload --port 5731
 ```
+
+The backend application loads `.env` once at startup. Package libraries read
+only the process environment and do not discover package-local env files.
+Shell/deployment environment variables take precedence over `.env` values.
 
 `AUTH_MODE=dev` is honored by `pkg-auth` when `ENV=dev`.
 

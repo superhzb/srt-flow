@@ -19,13 +19,9 @@ class AuthConfigError(RuntimeError):
 
 
 class AuthSettings(BaseSettings):
-    """Auth settings loaded at runtime from environment and local .env files."""
+    """Auth settings loaded at runtime from the process environment."""
 
-    model_config = SettingsConfigDict(
-        env_file=(".env", "pkg-auth/.env", "srt-backend/pkg-auth/.env"),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     env: Environment = Field(default="dev", alias="ENV")
     auth_mode: AuthMode = Field(default="google", alias="AUTH_MODE")
