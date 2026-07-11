@@ -40,6 +40,7 @@ def test_create_job_returns_202_and_inserts_pending(client: Any, fake_worker: An
             "source_lang": "en",
             "targets": ["fr", "de"],
             "worker": "mlx",
+            "filename": "episode-01.srt",
         },
     )
     assert resp.status_code == 202
@@ -50,6 +51,42 @@ def test_create_job_returns_202_and_inserts_pending(client: Any, fake_worker: An
     status = client.get(f"/api/jobs/{body['job_id']}").json()
     # The worker_loop may already have started processing — accept either.
     assert status["status"] in {"pending", "processing", "done"}
+    assert status["filename"] == "episode-01.srt"
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["a" * 256, "bad\nname.srt", "bad\x00name.srt", "folder/name.srt", "folder\\name.srt", ".."],
+)
+def test_create_rejects_unsafe_filename(client: Any, filename: str) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "cues": [CUE_EN],
+            "source_lang": "en",
+            "targets": ["fr"],
+            "worker": "mlx",
+            "filename": filename,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_create_treats_empty_filename_as_null(client: Any, fake_worker: Any) -> None:
+    client.app.state.job_ctx.worker_client = fake_worker  # type: ignore[method-assign]
+    response = client.post(
+        "/api/jobs",
+        json={
+            "cues": [CUE_EN],
+            "source_lang": "en",
+            "targets": ["fr"],
+            "worker": "mlx",
+            "filename": "   ",
+        },
+    )
+    assert response.status_code == 202
+    detail = client.get(f"/api/jobs/{response.json()['job_id']}").json()
+    assert detail["filename"] is None
 
 
 def test_full_flow_processes_to_done_with_download(client: Any, patched_worker: Any) -> None:

@@ -92,6 +92,7 @@ class Job(SQLModel, table=True):
     """One translation job: one input → N target outputs."""
 
     id: str = Field(primary_key=True)
+    filename: str | None = Field(default=None)
     user_id: str = Field(foreign_key="user.id", index=True)
     status: JobStatus = Field(default="pending", index=True)
     worker: str
@@ -113,6 +114,7 @@ class Job(SQLModel, table=True):
         """Compact dict for the GET /api/jobs list response."""
         return {
             "id": self.id,
+            "filename": self.filename,
             "status": self.status,
             "worker": self.worker,
             "src_lang": self.src_lang,

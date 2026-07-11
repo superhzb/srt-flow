@@ -50,6 +50,7 @@ export interface JobResult {
 
 export interface JobStatusResponse {
   id: string;
+  filename: string | null;
   status: JobStatus;
   progress: number;
   worker: string;
@@ -67,6 +68,7 @@ export interface JobStatusResponse {
 
 export interface JobSummary {
   id: string;
+  filename: string | null;
   status: JobStatus;
   worker: string;
   src_lang: string;
@@ -126,6 +128,7 @@ export async function startJob(params: {
   sourceLang: string;
   targets: string[];
   worker: string;
+  filename?: string;
 }): Promise<{ job_id: string }> {
   return apiFetch<{ job_id: string }>("/api/jobs", {
     method: "POST",
@@ -135,6 +138,7 @@ export async function startJob(params: {
       source_lang: params.sourceLang,
       targets: params.targets,
       worker: params.worker,
+      filename: params.filename,
     }),
   });
 }

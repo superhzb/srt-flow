@@ -72,6 +72,7 @@ def test_table_rows_are_paged_and_bounds_checked(route_db: str) -> None:
     body: dict[str, Any] = page.json()
     assert body["columns"] == [
         "id",
+        "filename",
         "user_id",
         "status",
         "worker",

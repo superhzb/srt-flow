@@ -60,18 +60,23 @@ def test_enqueue_persists_pending_and_input(temp_db: str, job_ctx: JobContext) -
             source_lang="en",
             targets=["fr", "de"],
             worker_id="mlx",
+            filename="episode-01.srt",
         )
         job_id = result.job_id
         inner_id = result.job.id
         tgt_csv = result.job.tgt_langs
         worker = result.job.worker
         status = result.job.status
+        filename = result.job.filename
+        summary_filename = result.job.model_dump_summary()["filename"]
         s.commit()
     assert isinstance(result, EnqueueResult)
     assert job_id == inner_id
     assert status == "pending"
     assert tgt_csv == "fr,de"
     assert worker == "mlx"
+    assert filename == "episode-01.srt"
+    assert summary_filename == "episode-01.srt"
 
     # input.srt landed on disk in the canonical layout.
     saved = job_ctx.storage.get(DEV_USER_ID, job_id, "input.srt")
@@ -82,6 +87,24 @@ def test_enqueue_persists_pending_and_input(temp_db: str, job_ctx: JobContext) -
         row = s.get(Job, job_id)
     assert row is not None
     assert row.status == "pending"
+    assert row.filename == "episode-01.srt"
+
+
+def test_enqueue_without_filename_reports_null(temp_db: str, job_ctx: JobContext) -> None:
+    with Session(get_engine()) as session:
+        seed_dev_user(session)
+        session.commit()
+        result = enqueue(
+            job_ctx,
+            session,
+            cues=_cues(),
+            source_lang="en",
+            targets=["fr"],
+            worker_id="mlx",
+        )
+        session.commit()
+        assert result.job.filename is None
+        assert result.job.model_dump_summary()["filename"] is None
 
 
 def test_enqueue_rejects_unknown_worker(temp_db: str, job_ctx: JobContext) -> None:

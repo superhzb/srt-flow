@@ -8,50 +8,55 @@ import {
   type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
+import { CuesView } from "./CuesView.tsx";
 import { ErrorBanner } from "./components.tsx";
 
+export interface FileEntry {
+  id: string;
+  file: File;
+  name: string;
+  status: "parsing" | "ready" | "error";
+  generation: number;
+  prepare?: PrepareResponse;
+  sourceLang?: string;
+  error?: string;
+}
+
 interface Props {
-  fileName: string;
-  prepare: PrepareResponse;
-  onProcess: (
-    workerId: string,
-    workerLabel: string,
-    sourceLang: string,
-    targets: string[],
-  ) => void;
+  entries: FileEntry[];
+  onSourceChange: (id: string, sourceLang: string) => void;
+  onRemove: (id: string) => void;
+  onRetry: (id: string) => void;
+  onProcess: (workerId: string, targets: string[]) => void;
   onBack: () => void;
 }
 
 export function ConfigureScreen({
-  fileName,
-  prepare,
+  entries,
+  onSourceChange,
+  onRemove,
+  onRetry,
   onProcess,
   onBack,
 }: Props) {
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
-  const [workerId, setWorkerId] = useState<string>("");
+  const [workerId, setWorkerId] = useState("");
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
-  const [sourceLang, setSourceLang] = useState<string>(
-    prepare.detected_lang ?? "",
-  );
   const [targets, setTargets] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [processError, setProcessError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getWorkers()
-      .then((ws) => {
+      .then((items) => {
         if (cancelled) return;
-        setWorkers(ws);
-        const firstHealthy = ws.find((w) => w.healthy);
-        const first = firstHealthy ?? ws[0];
+        setWorkers(items);
+        const first = items.find((item) => item.healthy) ?? items[0];
         if (first) setWorkerId(first.id);
       })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setLoadError(errMessage(e, "failed to load workers"));
-        }
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setLoadError(errMessage(error, "failed to load workers"));
       });
     return () => {
       cancelled = true;
@@ -64,174 +69,216 @@ export function ConfigureScreen({
     setLanguages([]);
     setTargets(new Set());
     getLanguages(workerId)
-      .then((langs) => {
-        if (cancelled) return;
-        setLanguages(langs);
+      .then((items) => {
+        if (!cancelled) setLanguages(items);
       })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setLoadError(errMessage(e, "failed to load languages"));
-        }
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setLoadError(errMessage(error, "failed to load languages"));
       });
     return () => {
       cancelled = true;
     };
   }, [workerId]);
 
-  // When source changes, drop it from targets if it slipped in.
-  useEffect(() => {
-    setTargets((prev) => {
-      if (!prev.has(sourceLang)) return prev;
-      const next = new Set(prev);
-      next.delete(sourceLang);
-      return next;
-    });
-  }, [sourceLang]);
+  const parsingCount = entries.filter(
+    (entry) => entry.status === "parsing",
+  ).length;
+  const processable = entries.filter(
+    (entry) =>
+      entry.status === "ready" &&
+      Boolean(entry.sourceLang) &&
+      [...targets].some((target) => target !== entry.sourceLang),
+  );
+  const skippedCount = entries.filter(
+    (entry) =>
+      entry.status === "ready" &&
+      Boolean(entry.sourceLang) &&
+      targets.size > 0 &&
+      ![...targets].some((target) => target !== entry.sourceLang),
+  ).length;
+  const worker = workers.find((item) => item.id === workerId);
+  const disabled =
+    parsingCount > 0 ||
+    processable.length === 0 ||
+    targets.size === 0 ||
+    !workerId ||
+    (worker !== undefined && !worker.healthy);
 
   function toggleTarget(code: string) {
-    setTargets((prev) => {
-      const next = new Set(prev);
+    setTargets((previous) => {
+      const next = new Set(previous);
       if (next.has(code)) next.delete(code);
       else next.add(code);
       return next;
     });
   }
 
-  function handleProcess() {
-    setProcessError(null);
-    if (!workerId) {
-      setProcessError("pick a worker");
-      return;
-    }
-    if (!sourceLang) {
-      setProcessError("pick a source language");
-      return;
-    }
-    if (targets.size === 0) {
-      setProcessError("pick at least one target language");
-      return;
-    }
-    onProcess(workerId, worker?.label ?? workerId, sourceLang, [...targets]);
-  }
-
-  const worker = workers.find((w) => w.id === workerId);
-  const workerBlocked = worker !== undefined && !worker.healthy;
-
   return (
     <section className="mt-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Configure translation</h2>
+          <h2 className="text-lg font-semibold">Configure batch</h2>
           <p className="text-sm text-slate-600">
-            <span className="font-medium">{fileName}</span> · {prepare.count}{" "}
-            cues
-            {prepare.detected_lang && (
-              <>
-                {" "}
-                · detected:{" "}
-                <span className="font-mono">{prepare.detected_lang}</span> (
-                {(prepare.confidence * 100).toFixed(0)}%)
-              </>
-            )}
+            One worker and target set, with a source language per file.
           </p>
         </div>
         <button
           type="button"
           onClick={onBack}
-          className="text-sm text-slate-600 hover:text-slate-900 underline"
+          className="text-sm text-slate-600 underline"
         >
-          pick another file
+          start over
         </button>
       </div>
 
       {loadError && <ErrorBanner>{loadError}</ErrorBanner>}
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">
-          Worker
-        </label>
+        <label className="mb-1 block text-sm font-medium">Worker</label>
         <select
           value={workerId}
-          onChange={(e) => setWorkerId(e.target.value)}
+          onChange={(event) => setWorkerId(event.target.value)}
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
         >
           {workers.length === 0 && <option value="">loading…</option>}
-          {workers.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.label} {w.healthy ? "" : "(unreachable)"}
+          {workers.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label} {item.healthy ? "" : "(unreachable)"}
             </option>
           ))}
         </select>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">
-          Source language
-        </label>
-        <select
-          value={sourceLang}
-          onChange={(e) => setSourceLang(e.target.value)}
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-        >
-          <option value="">(pick a source language)</option>
-          {languages.map((l) => (
-            <option key={l.code} value={l.code}>
-              {l.name} ({l.code})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">
-          Target languages
-        </label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {languages
-            .filter((l) => l.code !== sourceLang)
-            .map((l) => {
-              const checked = targets.has(l.code);
-              return (
-                <label
-                  key={l.code}
-                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer ${
-                    checked
-                      ? "border-indigo-500 bg-indigo-50"
-                      : "border-slate-300 bg-white"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleTarget(l.code)}
-                  />
-                  <span>
-                    {l.name}{" "}
-                    <span className="text-slate-500 font-mono text-xs">
-                      {l.code}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
+        <p className="mb-1 text-sm font-medium">Shared target languages</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {languages.map((language) => {
+            const checked = targets.has(language.code);
+            return (
+              <label
+                key={language.code}
+                className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white"}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleTarget(language.code)}
+                />
+                {language.name}{" "}
+                <span className="font-mono text-xs text-slate-500">
+                  {language.code}
+                </span>
+              </label>
+            );
+          })}
         </div>
       </div>
 
-      {processError && <ErrorBanner>{processError}</ErrorBanner>}
+      <div className="space-y-3">
+        {entries.map((entry) => {
+          const effectiveTargets = [...targets].filter(
+            (target) => target !== entry.sourceLang,
+          );
+          const noEffectiveTarget =
+            entry.status === "ready" &&
+            targets.size > 0 &&
+            effectiveTargets.length === 0;
+          return (
+            <article
+              key={entry.id}
+              className="rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">{entry.name}</p>
+                  {entry.status === "parsing" && (
+                    <p className="text-sm text-slate-500">Parsing…</p>
+                  )}
+                  {entry.status === "error" && (
+                    <p className="text-sm text-red-700">{entry.error}</p>
+                  )}
+                  {entry.prepare && (
+                    <p className="text-xs text-slate-500">
+                      {entry.prepare.count} cues · detected{" "}
+                      {entry.prepare.detected_lang ?? "unknown"} (
+                      {(entry.prepare.confidence * 100).toFixed(0)}%) ·{" "}
+                      {effectiveTargets.length} effective targets
+                    </p>
+                  )}
+                  {noEffectiveTarget && (
+                    <p className="text-sm text-amber-700">
+                      Skipped: no target remains after removing the source
+                      language.
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {entry.status === "error" && (
+                    <button
+                      type="button"
+                      onClick={() => onRetry(entry.id)}
+                      className="text-sm underline"
+                    >
+                      retry
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(entry.id)}
+                    className="text-sm text-slate-600 underline"
+                  >
+                    remove
+                  </button>
+                </div>
+              </div>
+              {entry.status === "ready" && entry.prepare && (
+                <>
+                  <label className="mt-3 block text-sm font-medium">
+                    Source language
+                    <select
+                      value={entry.sourceLang ?? ""}
+                      onChange={(event) =>
+                        onSourceChange(entry.id, event.target.value)
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">(pick a source language)</option>
+                      {languages.map((language) => (
+                        <option key={language.code} value={language.code}>
+                          {language.name} ({language.code})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-sm text-slate-600">
+                      preview parsed cues
+                    </summary>
+                    <CuesView
+                      result={{
+                        cues: entry.prepare.cues,
+                        count: entry.prepare.count,
+                      }}
+                    />
+                  </details>
+                </>
+              )}
+            </article>
+          );
+        })}
+      </div>
 
       <button
         type="button"
-        onClick={handleProcess}
-        disabled={workerBlocked || targets.size === 0 || !sourceLang}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-indigo-500"
+        disabled={disabled}
+        onClick={() => onProcess(workerId, [...targets])}
+        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
       >
-        Process {targets.size > 0 && `(${targets.size})`}
+        {parsingCount > 0
+          ? `Waiting for ${parsingCount} files to parse…`
+          : `Process ${processable.length} files${skippedCount ? ` · ${skippedCount} skipped` : ""}`}
       </button>
-      {workerBlocked && (
-        <p className="text-xs text-amber-700 mt-1">
-          Selected worker is unreachable — start it or pick another.
-        </p>
-      )}
     </section>
   );
 }

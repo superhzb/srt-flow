@@ -18,6 +18,12 @@ export function JobsScreen() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const poll = usePoll(
+    listJobs,
+    (items) =>
+      items.every((job) => job.status === "done" || job.status === "failed"),
+    { immediateFirst: true },
+  );
 
   function refresh() {
     listJobs()
@@ -26,8 +32,9 @@ export function JobsScreen() {
   }
 
   useEffect(() => {
-    refresh();
-  }, []);
+    if (poll.result) setJobs(poll.result);
+    if (poll.error) setError(poll.error);
+  }, [poll.result, poll.error]);
 
   return (
     <section className="mt-6 space-y-4">
@@ -85,7 +92,14 @@ export function JobsScreen() {
                     }`}
                   >
                     <td className="px-3 py-2 font-mono text-xs">
-                      {j.id.slice(0, 8)}
+                      <span className="font-sans text-sm">
+                        {j.filename ?? j.id.slice(0, 8)}
+                      </span>
+                      {j.filename && (
+                        <span className="ml-2 text-slate-400">
+                          {j.id.slice(0, 8)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <StatusBadge status={j.status} />

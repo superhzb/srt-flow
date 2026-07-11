@@ -14,7 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pkg_srt_services.api import Cue, dict_to_cue
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel import col, select
 
 from .db import session_scope
@@ -34,6 +34,21 @@ class CreateJobRequest(BaseModel):
     source_lang: str = Field(min_length=1)
     targets: list[str] = Field(min_length=1)
     worker: str = Field(min_length=1)
+    filename: str | None = Field(default=None, max_length=255)
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("filename must not contain control characters")
+        if "/" in value or "\\" in value or ".." in value:
+            raise ValueError("filename must be a display name, not a path")
+        return value
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
@@ -50,6 +65,7 @@ async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]
                 source_lang=body.source_lang,
                 targets=body.targets,
                 worker_id=body.worker,
+                filename=body.filename,
             )
             ctx.queue.put_nowait(result.job_id)
     except EnqueueError as exc:
@@ -84,6 +100,7 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
         out: dict[str, Any] = {
             "id": job.id,
+            "filename": job.filename,
             "status": job.status,
             "progress": job.progress,
             "worker": job.worker,

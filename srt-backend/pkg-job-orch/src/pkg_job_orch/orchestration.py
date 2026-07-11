@@ -167,6 +167,7 @@ def enqueue(
     source_lang: str,
     targets: list[str],
     worker_id: str,
+    filename: str | None = None,
 ) -> EnqueueResult:
     """Persist a new pending job and put its id on the queue.
 
@@ -210,6 +211,7 @@ def enqueue(
 
     job = Job(
         id=job_id,
+        filename=filename,
         user_id=ctx.dev_user_id,
         status="pending",
         worker=worker_id,
