@@ -50,7 +50,11 @@ from srt_backend.routes_workers import router as workers_router
 __all__ = ["api"]
 
 logger = logging.getLogger(__name__)
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+_ENV_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(_ENV_ROOT / ".env")
+_ENV = os.getenv("ENV", "dev")
+if _ENV != "dev":
+    load_dotenv(_ENV_ROOT / f".env.{_ENV}", override=True)
 
 
 class SpaStaticFiles(StaticFiles):
