@@ -1,11 +1,15 @@
 import { googleLoginUrl } from "./api.ts";
+import { DEMO_LINE, LANG_LABEL } from "./demoLine.ts";
+import { detectTargetLang } from "./lib.ts";
 import { FlowLogo, MonoLabel } from "./ui.tsx";
+import cockpit from "./assets/cockpit.webp";
 
 const login = () => {
   window.location.href = googleLoginUrl();
 };
 
 export function LandingScreen() {
+  const target = detectTargetLang();
   return (
     <main className="min-h-screen bg-surface text-ink">
       <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
@@ -43,27 +47,36 @@ export function LandingScreen() {
           Turn one SRT into broadcast-ready subtitles for every audience—in
           minutes, not weeks.
         </p>
-        <button
-          onClick={login}
-          className="mt-9 rounded-full bg-[#14181F] px-6 py-3.5 font-semibold text-white shadow-lg"
-        >
-          <span className="mr-2 inline-grid h-6 w-6 place-items-center rounded-full bg-white font-bold text-[#4285F4]">
-            G
-          </span>
-          Continue with Google
-        </button>
+        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <button
+            onClick={login}
+            className="inline-flex items-center justify-center gap-3 rounded-full bg-[#14181F] px-6 py-3.5 font-semibold text-white shadow-lg"
+          >
+            <GoogleIcon />
+            Continue with Google
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-border bg-surface px-6 py-3.5 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-surface-subtle"
+          >
+            Live demo
+          </button>
+        </div>
         <p className="mt-4 font-mono text-[11px] text-faint">
           Free tier · no card · 20 min of subtitles / month
         </p>
-        <div className="mt-20 grid gap-5 text-left md:grid-cols-2">
-          <VideoDemo label="01 · original">
-            <p>Le campus ouvrira ses portes en 2027.</p>
+        <div className="relative mt-20 grid gap-12 text-left md:grid-cols-2 md:gap-8">
+          <VideoDemo>
+            <p>{DEMO_LINE.en}</p>
           </VideoDemo>
-          <VideoDemo label="02 · srt·flow" translated>
-            <p>Le campus ouvrira ses portes en 2027.</p>
-            <p className="text-[#F4CF86]">
-              The campus will open its doors in 2027.
-            </p>
+          <TransformationArrow />
+          <VideoDemo badge={`EN + ${LANG_LABEL[target]}`}>
+            {target !== "en" && (
+              <p className="font-normal text-[#FFE066]">
+                {DEMO_LINE[target]}
+              </p>
+            )}
+            <p>{DEMO_LINE.en}</p>
           </VideoDemo>
         </div>
       </section>
@@ -175,37 +188,77 @@ export function LandingScreen() {
 }
 
 function VideoDemo({
-  label,
-  translated = false,
+  badge,
   children,
 }: {
-  label: string;
-  translated?: boolean;
+  /** Bilingual badge text, e.g. "EN + FR". Absent = monolingual card. */
+  badge?: string;
   children: React.ReactNode;
 }) {
+  const translated = badge !== undefined;
   return (
-    <div>
-      <div className="mb-2 flex justify-between font-mono text-[11px] text-faint">
-        <span>{label}</span>
-        <span>
-          {translated ? "bilingual · read both at once" : "one language only"}
-        </span>
-      </div>
+    <div className="min-w-0">
       <div
-        className={`relative flex aspect-video flex-col items-center justify-end overflow-hidden rounded-2xl bg-[#090A0D] p-7 text-center text-sm text-white shadow-xl ${translated ? "ring-1 ring-accent" : ""}`}
+        className="relative flex aspect-video flex-col items-center justify-end overflow-hidden rounded-2xl bg-[#090A0D] bg-cover bg-center px-7 pb-3 pt-7 text-center text-white shadow-xl"
+        style={{ backgroundImage: `url(${cockpit})` }}
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,#293241_0%,transparent_55%)]" />
-        <span className="relative mb-auto mt-auto text-3xl">▶</span>
-        <div className="relative space-y-1">{children}</div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/10" />
+        <div className="relative space-y-1 rounded-lg bg-black/40 px-4 py-2 text-lg leading-snug font-normal backdrop-blur-[2px] [text-shadow:0_1px_4px_rgba(0,0,0,.9)] sm:text-xl">
+          {children}
+        </div>
         {translated && (
           <span className="absolute right-4 top-4 rounded-full bg-accent px-2.5 py-1 font-mono text-[10px] font-semibold text-white">
-            FR + EN
+            {badge}
           </span>
         )}
-        <div
-          className={`relative mt-4 h-1 w-full rounded-full ${translated ? "bg-accent" : "bg-white/30"}`}
-        />
       </div>
+    </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      viewBox="0 0 18 18"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        fill="#4285F4"
+        d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.875 2.684-6.614Z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.468-.806 5.956-2.181l-2.909-2.258c-.806.54-1.835.859-3.047.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.333A9 9 0 0 0 9 18Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M3.963 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.168.281-1.706V4.961H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.039l3.007-2.333Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.961l3.007 2.333C4.672 5.165 6.656 3.58 9 3.58Z"
+      />
+    </svg>
+  );
+}
+
+function TransformationArrow() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute left-1/2 top-1/2 z-10 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 rotate-90 place-items-center rounded-full border-4 border-white bg-accent text-white shadow-xl md:rotate-0"
+    >
+      <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M4 12h15m-6-6 6 6-6 6"
+          stroke="currentColor"
+          strokeWidth="2.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </div>
   );
 }
