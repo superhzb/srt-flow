@@ -8,8 +8,15 @@ const login = () => {
   window.location.href = googleLoginUrl();
 };
 
-export function LandingScreen() {
+export function LandingScreen({
+  signedIn = false,
+  onOpenApp,
+}: {
+  signedIn?: boolean;
+  onOpenApp?: () => void;
+} = {}) {
   const target = detectTargetLang();
+  const primaryAction = signedIn && onOpenApp ? onOpenApp : login;
   return (
     <main className="min-h-screen bg-surface text-ink">
       <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
@@ -21,14 +28,14 @@ export function LandingScreen() {
             <a href="#pricing">Pricing</a>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={login} className="hidden text-sm sm:block">
-              Sign in
+            <button onClick={primaryAction} className="hidden text-sm sm:block">
+              {signedIn ? "Open app" : "Sign in"}
             </button>
             <button
-              onClick={login}
+              onClick={primaryAction}
               className="rounded-full bg-[#14181F] px-5 py-2.5 text-sm font-semibold text-white"
             >
-              Start free
+              {signedIn ? "Workspace" : "Start free"}
             </button>
           </div>
         </div>
@@ -49,11 +56,11 @@ export function LandingScreen() {
         </p>
         <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <button
-            onClick={login}
+            onClick={primaryAction}
             className="inline-flex items-center justify-center gap-3 rounded-full bg-[#14181F] px-6 py-3.5 font-semibold text-white shadow-lg"
           >
-            <GoogleIcon />
-            Continue with Google
+            {!signedIn && <GoogleIcon />}
+            {signedIn ? "Open workspace" : "Continue with Google"}
           </button>
           <button
             type="button"
@@ -176,10 +183,10 @@ export function LandingScreen() {
             Your work deserves an audience in every language.
           </h2>
           <button
-            onClick={login}
+            onClick={primaryAction}
             className="whitespace-nowrap text-lg font-semibold text-cyan-400"
           >
-            Start free →
+            {signedIn ? "Open workspace →" : "Start free →"}
           </button>
         </div>
       </footer>
@@ -203,7 +210,7 @@ function VideoDemo({
         style={{ backgroundImage: `url(${cockpit})` }}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/10" />
-        <div className="relative space-y-1 rounded-lg bg-black/40 px-4 py-2 text-lg leading-snug font-normal backdrop-blur-[2px] [text-shadow:0_1px_4px_rgba(0,0,0,.9)] sm:text-xl">
+        <div className="relative space-y-1 rounded-lg bg-black/25 px-4 py-2 text-lg leading-snug font-normal backdrop-blur-[2px] [text-shadow:0_1px_4px_rgba(0,0,0,.9)] sm:text-xl">
           {children}
         </div>
         {translated && (

@@ -8,16 +8,8 @@ import {
   type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
-import { CuesView } from "./CuesView.tsx";
 import { ErrorBanner } from "./components.tsx";
-import {
-  Button,
-  Card,
-  Input,
-  MonoLabel,
-  SectionHeader,
-  Select,
-} from "./ui.tsx";
+import { Select } from "./ui.tsx";
 
 const REGIONS: Record<string, string> = {
   en: "🇺🇸",
@@ -54,7 +46,7 @@ const NATIVE_NAMES: Record<string, string> = {
   tr: "Türkçe",
   uk: "Українська",
 };
-const RECENTS_KEY = "srtflow.recentLangs";
+const MAX_TARGETS = 3;
 
 export interface FileEntry {
   id: string;
@@ -92,13 +84,7 @@ export function ConfigureScreen({
   const [targets, setTargets] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [recents, setRecents] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]") as string[];
-    } catch {
-      return [];
-    }
-  });
+  const [selectionMessage, setSelectionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,16 +150,15 @@ export function ConfigureScreen({
     if (readOnly) return;
     setTargets((previous) => {
       const next = new Set(previous);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-    setRecents((current) => {
-      const next = [code, ...current.filter((x) => x !== code)].slice(0, 8);
-      try {
-        localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
-      } catch {
-        /* unavailable */
+      if (next.has(code)) {
+        next.delete(code);
+        setSelectionMessage(null);
+      } else if (next.size >= MAX_TARGETS) {
+        setSelectionMessage(`Choose up to ${MAX_TARGETS} target languages.`);
+        return previous;
+      } else {
+        next.add(code);
+        setSelectionMessage(null);
       }
       return next;
     });
@@ -185,122 +170,36 @@ export function ConfigureScreen({
       .includes(query.toLowerCase()),
   );
 
+  const sourceCount = new Set(
+    entries.map((entry) => entry.sourceLang).filter(Boolean),
+  ).size;
+  const totalTracks = entries.reduce(
+    (count, entry) =>
+      count +
+      [...targets].filter((target) => target !== entry.sourceLang).length,
+    0,
+  );
+
   return (
-    <section className="mt-6 space-y-6 rise">
-      <div className="flex items-center justify-between">
-        <div>
-          <SectionHeader
-            index="Step 2 / 4"
-            title="Target languages"
-            detail="One target set, a detected source for every file."
-          />
-          <p className="sr-only">
-            One worker and target set, with a source language per file.
-          </p>
-        </div>
+    <section className="space-y-7 rise">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="font-mono text-[11px] uppercase tracking-[.14em] text-faint">
+          {entries.length} {entries.length === 1 ? "file" : "files"} ·{" "}
+          {sourceCount} source {sourceCount === 1 ? "language" : "languages"}{" "}
+          detected
+        </p>
         <button
           type="button"
           onClick={onBack}
-          className="text-sm text-ink-muted underline"
+          className="font-mono text-[11px] text-faint underline"
         >
-          start over
+          clear all
         </button>
       </div>
 
       {loadError && <ErrorBanner>{loadError}</ErrorBanner>}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Worker</label>
-        <Select
-          value={workerId}
-          disabled={readOnly}
-          onChange={(event) => setWorkerId(event.target.value)}
-        >
-          {workers.length === 0 && <option value="">loading…</option>}
-          {workers.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label} {item.healthy ? "" : "(unreachable)"}
-            </option>
-          ))}
-        </Select>
-      </div>
-
-      <div>
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">Shared target languages</p>
-            <MonoLabel>{targets.size} selected</MonoLabel>
-          </div>
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search languages…"
-            aria-label="Search languages"
-            className="max-w-xs"
-            disabled={readOnly}
-          />
-        </div>
-        {!query && recents.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <MonoLabel>recent</MonoLabel>
-            {recents.map((code) => {
-              const l = languages.find((x) => x.code === code);
-              return l ? (
-                <button
-                  type="button"
-                  disabled={readOnly}
-                  key={code}
-                  onClick={() => toggleTarget(code)}
-                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs"
-                >
-                  {REGIONS[code] ?? code.toUpperCase()} {l.name}
-                  {NATIVE_NAMES[code] && NATIVE_NAMES[code] !== l.name
-                    ? ` · ${NATIVE_NAMES[code]}`
-                    : ""}
-                </button>
-              ) : null;
-            })}
-          </div>
-        )}
-        <div className="grid max-h-72 grid-cols-2 gap-2 overflow-auto rounded-xl bg-surface-inset p-2 sm:grid-cols-3">
-          {visibleLanguages.map((language) => {
-            const checked = targets.has(language.code);
-            return (
-              <label
-                key={language.code}
-                className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${readOnly ? "cursor-default opacity-75" : "cursor-pointer"} ${checked ? "border-accent bg-accent-soft" : "border-border bg-surface"}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={readOnly}
-                  onChange={() => toggleTarget(language.code)}
-                />
-                <span aria-hidden="true">
-                  {REGIONS[language.code] ?? language.code.toUpperCase()}
-                </span>
-                <span className="min-w-0">
-                  <span>{language.name}</span>
-                  {NATIVE_NAMES[language.code] &&
-                    NATIVE_NAMES[language.code] !== language.name && (
-                      <span className="ml-1 text-xs text-ink-muted">
-                        {NATIVE_NAMES[language.code]}
-                      </span>
-                    )}
-                </span>
-                {checked && (
-                  <span className="ml-auto text-accent-deep" aria-hidden="true">
-                    ✓
-                  </span>
-                )}
-              </label>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {entries.map((entry) => {
           const effectiveTargets = [...targets].filter(
             (target) => target !== entry.sourceLang,
@@ -310,30 +209,36 @@ export function ConfigureScreen({
             targets.size > 0 &&
             effectiveTargets.length === 0;
           return (
-            <Card key={entry.id} className="p-4">
+            <div
+              key={entry.id}
+              className="rounded-xl border border-border bg-surface p-3.5 shadow-sm"
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">{entry.name}</p>
-                  {entry.status === "parsing" && (
-                    <p className="text-sm text-faint">Parsing…</p>
-                  )}
-                  {entry.status === "error" && (
-                    <p className="text-sm text-red-700">{entry.error}</p>
-                  )}
-                  {entry.prepare && (
-                    <p className="text-xs text-faint">
-                      {entry.prepare.count} cues · detected{" "}
-                      {entry.prepare.detected_lang ?? "unknown"} (
-                      {(entry.prepare.confidence * 100).toFixed(0)}%) ·{" "}
-                      {effectiveTargets.length} effective targets
-                    </p>
-                  )}
-                  {noEffectiveTarget && (
-                    <p className="text-sm text-amber-700">
-                      Skipped: no target remains after removing the source
-                      language.
-                    </p>
-                  )}
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className="shrink-0 rounded-md bg-accent px-1.5 py-1 font-mono text-[10px] font-bold text-white">
+                    SRT
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{entry.name}</p>
+                    {entry.status === "parsing" && (
+                      <p className="text-sm text-faint">Parsing…</p>
+                    )}
+                    {entry.status === "error" && (
+                      <p className="text-sm text-red-700">{entry.error}</p>
+                    )}
+                    {entry.prepare && (
+                      <p className="text-xs text-faint">
+                        {entry.prepare.count} cues ·{" "}
+                        {entry.sourceLang ?? "unknown"} source
+                      </p>
+                    )}
+                    {noEffectiveTarget && (
+                      <p className="text-sm text-amber-700">
+                        Skipped: no target remains after removing the source
+                        language.
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   {entry.status === "error" && (
@@ -357,54 +262,119 @@ export function ConfigureScreen({
                 </div>
               </div>
               {entry.status === "ready" && entry.prepare && (
-                <>
-                  <label className="mt-3 block text-sm font-medium">
-                    Source language
-                    <Select
-                      value={entry.sourceLang ?? ""}
-                      disabled={readOnly}
-                      onChange={(event) =>
-                        onSourceChange(entry.id, event.target.value)
-                      }
-                      className="mt-1"
-                    >
-                      <option value="">(pick a source language)</option>
-                      {languages.map((language) => (
-                        <option key={language.code} value={language.code}>
-                          {language.name} ({language.code})
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                  <details className="mt-3">
-                    <summary className="cursor-pointer text-sm text-ink-muted">
-                      preview parsed cues
-                    </summary>
-                    <CuesView
-                      result={{
-                        cues: entry.prepare.cues,
-                        count: entry.prepare.count,
-                      }}
-                    />
-                  </details>
-                </>
+                <label className="mt-3 block text-xs font-medium text-ink-muted">
+                  Source language
+                  <Select
+                    value={entry.sourceLang ?? ""}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      onSourceChange(entry.id, event.target.value)
+                    }
+                    className="mt-1 text-sm"
+                  >
+                    <option value="">(pick a source language)</option>
+                    {languages.map((language) => (
+                      <option key={language.code} value={language.code}>
+                        {language.name} ({language.code})
+                      </option>
+                    ))}
+                  </Select>
+                </label>
               )}
-            </Card>
+            </div>
           );
         })}
       </div>
 
-      <Button
-        type="button"
-        disabled={disabled || readOnly}
-        onClick={() => onProcess(workerId, [...targets])}
-      >
-        {readOnly
-          ? "Run settings locked"
-          : parsingCount > 0
-            ? `Waiting for ${parsingCount} files to parse…`
-            : `Process ${processable.length} files${skippedCount ? ` · ${skippedCount} skipped` : ""}`}
-      </Button>
+      <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Choose target languages</h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Select up to {MAX_TARGETS} languages for every uploaded file.
+            </p>
+          </div>
+          <label className="min-w-56 text-xs font-medium text-ink-muted">
+            Translation worker
+            <Select
+              value={workerId}
+              disabled={readOnly}
+              onChange={(event) => setWorkerId(event.target.value)}
+              className="mt-1 text-sm"
+            >
+              {workers.length === 0 && <option value="">loading…</option>}
+              {workers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label} {item.healthy ? "" : "(unreachable)"}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-ink-muted">
+            <b className="text-accent-deep">{targets.size}</b> of {MAX_TARGETS}{" "}
+            selected
+          </p>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search languages…"
+            aria-label="Search languages"
+            disabled={readOnly}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm sm:w-64"
+          />
+        </div>
+        {selectionMessage && (
+          <p role="status" className="mt-2 text-sm text-amber-700">
+            {selectionMessage}
+          </p>
+        )}
+        <div className="mt-4 flex max-h-64 flex-wrap gap-2 overflow-auto">
+          {visibleLanguages.map((language) => {
+            const checked = targets.has(language.code);
+            const limitReached = targets.size >= MAX_TARGETS && !checked;
+            return (
+              <button
+                key={language.code}
+                type="button"
+                disabled={readOnly || limitReached}
+                onClick={() => toggleTarget(language.code)}
+                aria-pressed={checked}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${checked ? "border-accent bg-accent-soft text-accent-deep" : "border-border bg-surface"} ${limitReached ? "cursor-not-allowed opacity-45" : "hover:border-accent"}`}
+              >
+                <span>
+                  {REGIONS[language.code] ?? language.code.toUpperCase()}
+                </span>
+                <span>{language.name}</span>
+                {NATIVE_NAMES[language.code] &&
+                  NATIVE_NAMES[language.code] !== language.name && (
+                    <span className="text-xs text-ink-muted">
+                      {NATIVE_NAMES[language.code]}
+                    </span>
+                  )}
+                {checked && <span aria-hidden="true">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex justify-center pt-1">
+        <button
+          type="button"
+          disabled={disabled || readOnly}
+          onClick={() => onProcess(workerId, [...targets])}
+          className="inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {readOnly
+            ? "Run settings locked"
+            : parsingCount > 0
+              ? `Waiting for ${parsingCount} files to parse…`
+              : `⚡ Translate ${totalTracks} subtitle ${totalTracks === 1 ? "track" : "tracks"}${skippedCount ? ` · ${skippedCount} skipped` : ""} →`}
+        </button>
+      </div>
     </section>
   );
 }

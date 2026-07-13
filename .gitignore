@@ -12,3 +12,4 @@ srt-cloud-worker/tests/reports/*.md
 srt-mlx-worker/tests/reports/*.md
 srt-cloud-worker/dist/
 test_files/
+Frontend_Design/

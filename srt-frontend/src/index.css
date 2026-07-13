@@ -27,9 +27,9 @@
   --accent: #00a7c4;
   --accent-deep: #0b7c93;
   --accent-soft: #e1f5fa;
-  --page: #e7ebf0;
+  --page: #f4f6f9;
   --surface: #fff;
-  --surface-subtle: #fafbfc;
+  --surface-subtle: #fbfcfe;
   --surface-inset: #f1f3f6;
   --border: #e4e8ee;
   --border-subtle: #edeff3;
@@ -81,6 +81,19 @@ select:focus-visible {
 }
 .font-cjk {
   font-family: "Noto Sans SC", "Noto Sans JP", "Noto Sans KR", sans-serif;
+}
+.flow-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d3d9e2 transparent;
+}
+.flow-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.flow-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background: #d3d9e2;
+  background-clip: content-box;
 }
 .flow-mark span {
   animation: flowShift 2.8s ease-in-out infinite;

@@ -17,7 +17,7 @@ import { JobsScreen } from "./JobsScreen.tsx";
 import { LandingScreen } from "./LandingScreen.tsx";
 import { ProcessingScreen } from "./ProcessingScreen.tsx";
 import { StackedOutput } from "./StackedOutput.tsx";
-import { Button, Card, FlowLogo, MonoLabel, SectionHeader } from "./ui.tsx";
+import { Button, Card, FlowLogo, SectionHeader } from "./ui.tsx";
 
 type EnqueuedJob = { entry: FileEntry; jobId: string };
 type EnqueueFailure = { entry: FileEntry; message: string };
@@ -62,6 +62,7 @@ export default function App() {
   const [session, setSession] = useState<Me | null | undefined>(undefined);
   const [workflow, setWorkflow] = useState<Workflow>(EMPTY_WORKFLOW);
   const [tab, setTab] = useState<Tab>("translate");
+  const [showLanding, setShowLanding] = useState(false);
   const [checkoutStatus, setCheckoutStatus] = useState<
     "success" | "cancel" | null
   >(null);
@@ -319,14 +320,33 @@ export default function App() {
 
   if (session === undefined) return <div className="min-h-screen bg-surface" />;
   if (session === null) return <LandingScreen />;
+  if (showLanding)
+    return <LandingScreen signedIn onOpenApp={() => setShowLanding(false)} />;
 
   return (
     <div className="min-h-screen bg-page text-ink">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-8 flex items-center justify-between rounded-2xl border border-border bg-surface px-5 py-4">
+      <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3 sm:gap-5 sm:py-4">
           <FlowLogo />
-          <div className="flex items-center gap-3">
-            <MonoLabel>subtitle workspace</MonoLabel>
+          <div className="flex min-w-0 flex-1 items-center justify-center overflow-x-auto">
+            <TabButton active={false} onClick={() => setShowLanding(true)}>
+              Home
+            </TabButton>
+            {(["translate", "jobs", "db", "auth", "billing"] as Tab[]).map(
+              (item) => (
+                <TabButton
+                  key={item}
+                  active={tab === item}
+                  onClick={() => setTab(item)}
+                >
+                  {item === "jobs"
+                    ? "History"
+                    : item[0].toUpperCase() + item.slice(1)}
+                </TabButton>
+              ),
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={() =>
@@ -338,20 +358,9 @@ export default function App() {
               {theme === "light" ? "☾" : "☀"}
             </button>
           </div>
-        </header>
-        <nav className="mb-8 flex gap-1 overflow-auto border-b border-border">
-          {(["translate", "jobs", "db", "auth", "billing"] as Tab[]).map(
-            (item) => (
-              <TabButton
-                key={item}
-                active={tab === item}
-                onClick={() => setTab(item)}
-              >
-                {item[0].toUpperCase() + item.slice(1)}
-              </TabButton>
-            ),
-          )}
-        </nav>
+        </div>
+      </nav>
+      <main className="mx-auto max-w-6xl px-5 py-10 sm:py-12">
         {tab === "jobs" && <JobsScreen />}
         {tab === "db" && <DbScreen />}
         {tab === "auth" && <AuthScreen />}
@@ -471,7 +480,7 @@ export default function App() {
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
@@ -510,7 +519,8 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`border-b-2 px-4 py-2 font-mono text-xs uppercase tracking-wide ${active ? "border-accent text-accent-deep" : "border-transparent text-ink-muted"}`}
+      aria-current={active ? "page" : undefined}
+      className={`whitespace-nowrap rounded-full px-3 py-2 text-sm transition sm:px-4 ${active ? "bg-[#14181F] font-semibold text-white" : "text-ink-muted hover:bg-surface-subtle hover:text-ink"}`}
     >
       {children}
     </button>
@@ -544,11 +554,20 @@ export function UploadFlow({
   }
   return (
     <section className="rise">
-      <SectionHeader
-        index="Step 1 / 4"
-        title="Drop subtitles. Start the flow."
-        detail="One file or a whole batch—up to 20 SRTs at once."
-      />
+      <div className="flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <h1 className="text-3xl font-bold tracking-[-.03em]">
+            New translation
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-muted">
+            Drop your subtitle files, choose target languages, and translate
+            them all at once.
+          </p>
+        </div>
+        <p className="font-mono text-[11px] uppercase tracking-[.14em] text-faint">
+          Step 1 · Upload &amp; configure
+        </p>
+      </div>
       <div
         role="button"
         tabIndex={readOnly ? -1 : 0}
@@ -571,20 +590,18 @@ export function UploadFlow({
             inputRef.current?.click();
           }
         }}
-        className={`mt-6 rounded-2xl border-2 border-dashed p-14 text-center ${readOnly ? "cursor-default border-border bg-surface-subtle" : dragging ? "cursor-pointer border-accent bg-accent-soft" : "cursor-pointer border-accent/60 bg-accent-soft/50"}`}
+        className={`mt-6 rounded-2xl border-2 border-dashed p-10 text-center sm:p-12 ${readOnly ? "cursor-default border-border bg-surface-subtle opacity-60" : dragging ? "cursor-pointer border-accent bg-accent-soft" : "cursor-pointer border-accent/60 bg-accent-soft/50"}`}
       >
-        <div className="mx-auto mb-4 w-fit rounded-xl bg-surface px-3 py-2 font-mono text-xs font-semibold text-accent-deep shadow-sm">
-          SRT ↓
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-border bg-surface text-2xl font-bold text-accent shadow-[0_10px_22px_-12px_rgba(0,167,196,.5)]">
+          ↥
         </div>
-        <p className="font-semibold">
-          {readOnly
-            ? "Files locked for this run"
-            : `Drop up to ${MAX_BATCH} subtitle files`}
+        <p className="text-lg font-semibold">
+          {readOnly ? "Files locked for this run" : "Drop your .srt files here"}
         </p>
-        <p className="mt-1 text-sm text-ink-muted">
+        <p className="mt-1 text-[13.5px] text-ink-muted">
           {readOnly
             ? "Start over to choose another batch."
-            : "or click to browse · 4 MiB each"}
+            : `or browse — batch upload supported · up to ${MAX_BATCH} files, 4 MiB each`}
         </p>
         <input
           ref={inputRef}
