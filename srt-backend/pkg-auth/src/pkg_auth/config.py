@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from pkg_auth.models import Tier
 
 AuthMode = Literal["google", "dev"]
 Environment = Literal["dev", "staging", "prod"]
+
+_DEV_ADMIN_SESSION_SECRET = "srt-flow-dev-admin-session-secret"
 
 
 class AuthConfigError(RuntimeError):
@@ -42,6 +44,19 @@ class AuthSettings(BaseSettings):
     jwt_secret: SecretStr | None = Field(default=None, alias="JWT_SECRET")
     jwt_ttl_hours: int = Field(default=168, alias="JWT_TTL_HOURS")
 
+    admin_subs: Annotated[frozenset[str], NoDecode] = Field(
+        default_factory=frozenset,
+        alias="ADMIN_SUBS",
+    )
+    admin_emails: Annotated[frozenset[str], NoDecode] = Field(
+        default_factory=frozenset,
+        alias="ADMIN_EMAILS",
+    )
+    admin_session_secret: SecretStr | None = Field(
+        default=None,
+        alias="ADMIN_SESSION_SECRET",
+    )
+
     app_redirect_path: str = Field(default="/", alias="APP_REDIRECT_PATH")
     session_cookie_name: str = Field(default="srt_session", alias="SESSION_COOKIE_NAME")
     csrf_cookie_name: str = Field(default="srt_oauth_state", alias="CSRF_COOKIE_NAME")
@@ -61,6 +76,24 @@ class AuthSettings(BaseSettings):
             msg = "JWT_TTL_HOURS must be positive"
             raise ValueError(msg)
         return value
+
+    @field_validator("admin_subs", "admin_emails", mode="before")
+    @classmethod
+    def _parse_admin_allowlist(cls, value: object) -> frozenset[str]:
+        if value is None:
+            return frozenset()
+        if isinstance(value, str):
+            return frozenset(item.strip().casefold() for item in value.split(",") if item.strip())
+        if isinstance(value, (set, frozenset, list, tuple)):
+            return frozenset(str(item).strip().casefold() for item in value if str(item).strip())
+        msg = "Admin allowlists must be comma-separated strings"
+        raise ValueError(msg)
+
+    @model_validator(mode="after")
+    def _set_dev_admin_session_secret(self) -> AuthSettings:
+        if self.env == "dev" and self.admin_session_secret is None:
+            self.admin_session_secret = SecretStr(_DEV_ADMIN_SESSION_SECRET)
+        return self
 
     @model_validator(mode="after")
     def _load_google_json(self) -> AuthSettings:
@@ -93,6 +126,12 @@ class AuthSettings(BaseSettings):
             raise AuthConfigError(msg)
         if self.env != "dev" and self.auth_mode == "dev":
             msg = "AUTH_MODE=dev is only allowed when ENV=dev"
+            raise AuthConfigError(msg)
+        if self.env != "dev" and self.admin_session_secret is None:
+            msg = "Missing required auth config: ADMIN_SESSION_SECRET"
+            raise AuthConfigError(msg)
+        if self.env in {"staging", "prod"} and not self.admin_subs:
+            msg = "Missing required auth config: ADMIN_SUBS"
             raise AuthConfigError(msg)
         if self.auth_mode == "google":
             missing = [

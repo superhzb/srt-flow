@@ -146,11 +146,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             pass
 
 
-def _create_app() -> FastAPI:
+def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     from pkg_auth.api import router as auth_router
     from pkg_billing.api import router as billing_router
-    from pkg_job_orch.api import db_router
     from pkg_job_orch.api import router as jobs_router
+
+    from srt_backend.admin import register_admin
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
     app.include_router(auth_router, prefix="/api")
@@ -159,9 +160,9 @@ def _create_app() -> FastAPI:
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
-    app.include_router(db_router, prefix="/api")
+    register_admin(app)
 
-    frontend_dist = Path(__file__).resolve().parents[3] / "srt-frontend" / "dist"
+    frontend_dist = frontend_dist or (Path(__file__).resolve().parents[3] / "srt-frontend" / "dist")
     if frontend_dist.is_dir():
         app.mount("/", SpaStaticFiles(directory=frontend_dist, html=True), name="frontend")
     else:

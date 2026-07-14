@@ -56,7 +56,6 @@ __all__ = [
     "worker_base_url",
     "workers_env",
     # router
-    "db_router",
     "router",
 ]
 
@@ -96,7 +95,6 @@ from .orchestration import (
     worker_loop,
 )
 from .routes import router
-from .routes_db import router as db_router
 from .worker_client import (
     StreamOutcome,
     WorkerStreamError,

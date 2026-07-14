@@ -75,12 +75,17 @@ def test_me_dev_mode_returns_seeded_user(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("AUTH_MODE", "dev")
     monkeypatch.setenv("DEV_USER_EMAIL", "dev@example.test")
     monkeypatch.setenv("DEV_USER_TIER", "paid")
+    monkeypatch.setenv("ADMIN_EMAILS", "dev@example.test")
 
     with TestClient(_app()) as client:
         resp = client.get("/api/auth/me")
 
     assert resp.status_code == 200
-    assert resp.json() == {"email": "dev@example.test", "tier": "paid"}
+    assert resp.json() == {
+        "email": "dev@example.test",
+        "tier": "paid",
+        "is_admin": True,
+    }
 
 
 def test_paid_check_allows_paid_dev_user(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,8 +142,12 @@ def test_google_callback_sets_session_cookie(monkeypatch: pytest.MonkeyPatch) ->
     async def exchange_code_for_tokens(*_args: object, **_kwargs: object) -> dict[str, str]:
         return {"id_token": "id-token"}
 
-    async def verify_id_token(*_args: object, **_kwargs: object) -> dict[str, str]:
-        return {"sub": "google-sub", "email": "user@example.test"}
+    async def verify_id_token(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "sub": "google-sub",
+            "email": "user@example.test",
+            "email_verified": True,
+        }
 
     monkeypatch.setattr(google, "exchange_code_for_tokens", exchange_code_for_tokens)
     monkeypatch.setattr(google, "verify_id_token", verify_id_token)
@@ -150,3 +159,28 @@ def test_google_callback_sets_session_cookie(monkeypatch: pytest.MonkeyPatch) ->
 
     assert resp.status_code == 307
     assert "srt_session=" in resp.headers["set-cookie"]
+
+
+def test_google_callback_rejects_unverified_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    google = importlib.import_module("pkg_auth.google")
+
+    async def exchange_code_for_tokens(*_args: object, **_kwargs: object) -> dict[str, str]:
+        return {"id_token": "id-token"}
+
+    async def verify_id_token(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "sub": "google-sub",
+            "email": "user@example.test",
+            "email_verified": False,
+        }
+
+    monkeypatch.setattr(google, "exchange_code_for_tokens", exchange_code_for_tokens)
+    monkeypatch.setattr(google, "verify_id_token", verify_id_token)
+
+    with TestClient(_app()) as client:
+        client.get("/api/auth/google/login")
+        state = client.cookies["srt_oauth_state"]
+        resp = client.get(f"/api/auth/google/callback?code=abc&state={state}")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Invalid id_token claims"

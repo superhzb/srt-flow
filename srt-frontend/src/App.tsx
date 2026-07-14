@@ -11,7 +11,6 @@ import {
 import { AuthScreen } from "./AuthScreen.tsx";
 import { BillingScreen } from "./BillingScreen.tsx";
 import { ConfigureScreen, type FileEntry } from "./ConfigureScreen.tsx";
-import { DbScreen } from "./DbScreen.tsx";
 import { ErrorBanner } from "./components.tsx";
 import { JobsScreen } from "./JobsScreen.tsx";
 import { LandingScreen } from "./LandingScreen.tsx";
@@ -31,7 +30,7 @@ type Workflow = {
   enqueueFailures: EnqueueFailure[];
   terminalJobs: Record<string, JobStatusResponse>;
 };
-type Tab = "translate" | "jobs" | "db" | "auth" | "billing";
+type Tab = "translate" | "jobs" | "auth" | "billing";
 type Theme = "light" | "dark";
 
 const ACCEPT = ".srt";
@@ -332,21 +331,27 @@ export default function App() {
             <TabButton active={false} onClick={() => setShowLanding(true)}>
               Home
             </TabButton>
-            {(["translate", "jobs", "db", "auth", "billing"] as Tab[]).map(
-              (item) => (
-                <TabButton
-                  key={item}
-                  active={tab === item}
-                  onClick={() => setTab(item)}
-                >
-                  {item === "jobs"
-                    ? "History"
-                    : item[0].toUpperCase() + item.slice(1)}
-                </TabButton>
-              ),
-            )}
+            {(["translate", "jobs", "auth", "billing"] as Tab[]).map((item) => (
+              <TabButton
+                key={item}
+                active={tab === item}
+                onClick={() => setTab(item)}
+              >
+                {item === "jobs"
+                  ? "History"
+                  : item[0].toUpperCase() + item.slice(1)}
+              </TabButton>
+            ))}
           </div>
           <div className="flex shrink-0 items-center gap-3">
+            {session.is_admin && (
+              <a
+                href="/admin/"
+                className="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-ink hover:bg-surface-subtle"
+              >
+                Admin
+              </a>
+            )}
             <button
               type="button"
               onClick={() =>
@@ -362,7 +367,6 @@ export default function App() {
       </nav>
       <main className="mx-auto max-w-6xl px-5 py-10 sm:py-12">
         {tab === "jobs" && <JobsScreen />}
-        {tab === "db" && <DbScreen />}
         {tab === "auth" && <AuthScreen />}
         {tab === "billing" && (
           <BillingScreen

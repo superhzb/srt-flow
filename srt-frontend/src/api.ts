@@ -88,22 +88,10 @@ export interface JobSummary {
   attempts: number;
 }
 
-export interface TableInfo {
-  name: string;
-  count: number;
-}
-
-export interface TablePage {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  total: number;
-  page: number;
-  size: number;
-}
-
 export interface Me {
   email: string;
   tier: "free" | "paid";
+  is_admin: boolean;
 }
 
 export interface CheckoutResponse {
@@ -158,28 +146,6 @@ export async function pollJob(jobId: string): Promise<JobStatusResponse> {
 export async function listJobs(): Promise<JobSummary[]> {
   const body = await apiFetch<{ jobs: JobSummary[] }>("/api/jobs");
   return body.jobs;
-}
-
-export async function listTables(): Promise<TableInfo[]> {
-  return apiFetch<TableInfo[]>("/api/db/tables");
-}
-
-export async function getTableRows(
-  name: string,
-  page: number,
-  size = 20,
-): Promise<TablePage> {
-  const params = new URLSearchParams({
-    page: String(page),
-    size: String(size),
-  });
-  return apiFetch<TablePage>(
-    `/api/db/tables/${encodeURIComponent(name)}?${params}`,
-  );
-}
-
-export async function clearAllData(): Promise<{ cleared: number }> {
-  return apiFetch<{ cleared: number }>("/api/db/clear", { method: "POST" });
 }
 
 export async function getMe(): Promise<Me | null> {
