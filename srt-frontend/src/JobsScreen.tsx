@@ -9,6 +9,7 @@ import {
 } from "./api.ts";
 import { ErrorBanner, RefreshButton } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
+import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
 
 const MOCK_QUOTA = { used: 16, limit: 20 };
@@ -147,8 +148,9 @@ function JobListItem({
             {job.filename ?? job.id.slice(0, 8)}
           </span>
           <span className="mt-0.5 block truncate font-mono text-[10.5px] text-faint">
-            {formatJobDate(job.created_at)} · {job.src_lang.toUpperCase()} →{" "}
-            {job.tgt_langs.length}{" "}
+            {formatJobDate(job.created_at)} ·{" "}
+            <span aria-hidden="true">{langMeta(job.src_lang).flag}</span>{" "}
+            {job.src_lang.toUpperCase()} → {job.tgt_langs.length}{" "}
             {job.tgt_langs.length === 1 ? "lang" : "langs"}
           </span>
         </span>
@@ -173,7 +175,7 @@ function JobReview({ jobId }: { jobId: string }) {
       </div>
     );
 
-  const meta = `${formatJobDate(job.created_at)} · ${job.src_lang.toUpperCase()} → ${job.tgt_langs.length} ${job.tgt_langs.length === 1 ? "language" : "languages"}`;
+  const meta = `${formatJobDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${job.tgt_langs.length} ${job.tgt_langs.length === 1 ? "language" : "languages"}`;
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_14px_34px_-26px_rgba(20,24,31,.2)]">
       {job.status === "done" ? (

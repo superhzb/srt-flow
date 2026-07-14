@@ -1,4 +1,5 @@
 import { googleLoginUrl } from "./api.ts";
+import { LanguagePill } from "./components.tsx";
 import { DEMO_LINE, LANG_LABEL } from "./demoLine.ts";
 import { detectTargetLang } from "./lib.ts";
 import { FlowLogo, MonoLabel } from "./ui.tsx";
@@ -22,18 +23,38 @@ export function LandingScreen({
       <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-4">
           <FlowLogo />
-          <div className="hidden items-center gap-7 text-sm md:flex">
-            <a href="#howitworks">How it works</a>
-            <a href="#languages">Languages</a>
-            <a href="#pricing">Pricing</a>
+          <div className="hidden items-center gap-7 text-sm text-ink-muted md:flex">
+            <a
+              href="#howitworks"
+              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
+            >
+              How it works
+            </a>
+            <a
+              href="#languages"
+              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
+            >
+              Languages
+            </a>
+            <a
+              href="#pricing"
+              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
+            >
+              Pricing
+            </a>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={primaryAction} className="hidden text-sm sm:block">
+            <button
+              type="button"
+              onClick={primaryAction}
+              className="hidden rounded-full px-3 py-1.5 text-sm font-medium text-ink-muted transition hover:bg-surface-inset hover:text-ink active:scale-95 sm:block"
+            >
               {signedIn ? "Open app" : "Sign in"}
             </button>
             <button
+              type="button"
               onClick={primaryAction}
-              className="rounded-full bg-[#14181F] px-5 py-2.5 text-sm font-semibold text-white"
+              className="rounded-full bg-[#14181F] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-accent-deep hover:shadow-lg active:translate-y-0 active:scale-95"
             >
               {signedIn ? "Workspace" : "Start free"}
             </button>
@@ -56,15 +77,16 @@ export function LandingScreen({
         </p>
         <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <button
+            type="button"
             onClick={primaryAction}
-            className="inline-flex items-center justify-center gap-3 rounded-full bg-[#14181F] px-6 py-3.5 font-semibold text-white shadow-lg"
+            className="inline-flex items-center justify-center gap-3 rounded-full bg-[#14181F] px-6 py-3.5 font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-accent-deep hover:shadow-xl active:translate-y-0 active:scale-95"
           >
             {!signedIn && <GoogleIcon />}
             {signedIn ? "Open workspace" : "Continue with Google"}
           </button>
           <button
             type="button"
-            className="rounded-full border border-border bg-surface px-6 py-3.5 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-surface-subtle"
+            className="rounded-full border border-border bg-surface px-6 py-3.5 font-semibold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-ink/40 hover:bg-surface-inset hover:shadow-md active:translate-y-0 active:scale-95"
           >
             Live demo
           </button>
@@ -92,37 +114,38 @@ export function LandingScreen({
         className="scroll-mt-24 border-y border-border bg-surface-subtle px-5 py-24"
       >
         <div className="mx-auto max-w-6xl">
-          <MonoLabel>three steps · zero friction</MonoLabel>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight">
-            From upload to audience, without the busywork.
-          </h2>
-          <div className="mt-10 grid gap-5 md:grid-cols-3">
+          <div className="text-center">
+            <MonoLabel>Three steps · zero friction</MonoLabel>
+          </div>
+          <div className="mt-9 grid gap-5 md:grid-cols-3">
             {[
               [
                 "01",
-                "Drop your SRT",
-                "One file or a whole season. Source language is detected automatically.",
+                "Drop your .srt",
+                "One file or a whole batch. We auto-detect the source language instantly.",
               ],
               [
                 "02",
-                "Pick your audience",
-                "Search and select every language your audience speaks.",
+                "Pick languages",
+                "Search, tap, done. Choose two or two dozen — they all run in parallel.",
               ],
               [
                 "03",
-                "Arrange & ship",
-                "Preview, reorder, and download without translating again.",
+                "Download stacked",
+                "Reorder any language to the top and re-download instantly — no re-translating, ever.",
               ],
             ].map(([n, t, d]) => (
               <article
                 key={n}
-                className="rounded-2xl border border-border bg-surface p-7 shadow-sm"
+                className="rounded-[13px] border border-border bg-surface p-[26px]"
               >
-                <span className="font-mono text-sm font-semibold text-accent-deep">
+                <span className="font-mono text-[13px] font-semibold text-accent">
                   {n}
                 </span>
-                <h3 className="mt-8 text-xl font-semibold">{t}</h3>
-                <p className="mt-3 text-sm leading-6 text-ink-muted">{d}</p>
+                <h3 className="mt-3.5 text-lg font-semibold tracking-[-.01em]">
+                  {t}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-ink-muted">{d}</p>
               </article>
             ))}
           </div>
@@ -140,25 +163,20 @@ export function LandingScreen({
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
             {[
-              "English",
-              "Français",
-              "Español",
-              "Deutsch",
-              "Português",
-              "中文",
-              "日本語",
-              "한국어",
-              "العربية",
-              "हिन्दी",
-              "Italiano",
-              "Türkçe",
-            ].map((x) => (
-              <span
-                key={x}
-                className="rounded-full border border-border bg-surface-subtle px-4 py-2 text-sm"
-              >
-                {x}
-              </span>
+              "en",
+              "fr",
+              "es",
+              "de",
+              "pt",
+              "zh",
+              "ja",
+              "ko",
+              "ar",
+              "hi",
+              "it",
+              "tr",
+            ].map((code) => (
+              <LanguagePill key={code} code={code} />
             ))}
           </div>
         </div>
@@ -183,8 +201,9 @@ export function LandingScreen({
             Your work deserves an audience in every language.
           </h2>
           <button
+            type="button"
             onClick={primaryAction}
-            className="whitespace-nowrap text-lg font-semibold text-cyan-400"
+            className="whitespace-nowrap text-lg font-semibold text-cyan-400 underline-offset-4 transition hover:text-cyan-300 hover:underline active:scale-95"
           >
             {signedIn ? "Open workspace →" : "Start free →"}
           </button>

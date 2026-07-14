@@ -3,6 +3,71 @@
 import { useState } from "react";
 
 import { useJobOutput } from "./hooks.ts";
+import { langMeta } from "./languages.ts";
+
+/**
+ * Universal language chip: flag + English name + native name.
+ * Single design shared by the picker (ConfigureScreen), the home
+ * languages section (LandingScreen) and anywhere else a language is shown.
+ */
+export function LanguagePill({
+  code,
+  selected = false,
+  showCheck = false,
+  interactive = false,
+  disabled = false,
+  onClick,
+}: {
+  code: string;
+  selected?: boolean;
+  showCheck?: boolean;
+  interactive?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  const { flag, en, native } = langMeta(code);
+  const cls = `inline-flex select-none items-center gap-[7px] rounded-[10px] border px-3 py-2 text-[13px] transition ${
+    selected
+      ? "border-accent bg-accent-soft font-semibold text-accent-deep"
+      : "border-border bg-surface font-medium text-ink-muted"
+  } ${
+    disabled
+      ? "cursor-not-allowed opacity-45"
+      : interactive
+        ? "cursor-pointer hover:border-accent"
+        : "cursor-default hover:-translate-y-0.5 hover:border-accent hover:bg-accent-soft hover:text-accent-deep"
+  }`;
+  const inner = (
+    <>
+      <span aria-hidden="true">{flag}</span>
+      <span>{en}</span>
+      {native !== en && (
+        <span className="font-normal opacity-55">{native}</span>
+      )}
+      {showCheck && (
+        <span
+          aria-hidden="true"
+          className="font-bold text-accent transition-opacity"
+          style={{ opacity: selected ? 1 : 0 }}
+        >
+          ✓
+        </span>
+      )}
+    </>
+  );
+  if (!interactive) return <span className={cls}>{inner}</span>;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cls}
+    >
+      {inner}
+    </button>
+  );
+}
 
 /** Red error banner (duplicated ~8× before). `role="alert"` for a11y (#25). */
 export function ErrorBanner({ children }: { children: React.ReactNode }) {

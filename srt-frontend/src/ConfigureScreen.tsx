@@ -8,44 +8,10 @@ import {
   type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
-import { ErrorBanner } from "./components.tsx";
+import { ErrorBanner, LanguagePill } from "./components.tsx";
+import { langMeta } from "./languages.ts";
 import { Select } from "./ui.tsx";
 
-const REGIONS: Record<string, string> = {
-  en: "🇺🇸",
-  fr: "🇫🇷",
-  es: "🇪🇸",
-  de: "🇩🇪",
-  it: "🇮🇹",
-  pt: "🇵🇹",
-  ja: "🇯🇵",
-  ko: "🇰🇷",
-  zh: "🇨🇳",
-  ar: "🇸🇦",
-  hi: "🇮🇳",
-  ru: "🇷🇺",
-  nl: "🇳🇱",
-  pl: "🇵🇱",
-  tr: "🇹🇷",
-};
-const NATIVE_NAMES: Record<string, string> = {
-  en: "English",
-  fr: "Français",
-  es: "Español",
-  de: "Deutsch",
-  it: "Italiano",
-  pt: "Português",
-  ja: "日本語",
-  ko: "한국어",
-  zh: "中文",
-  ar: "العربية",
-  hi: "हिन्दी",
-  ru: "Русский",
-  nl: "Nederlands",
-  pl: "Polski",
-  tr: "Türkçe",
-  uk: "Українська",
-};
 const MAX_TARGETS = 3;
 
 export interface FileEntry {
@@ -165,7 +131,7 @@ export function ConfigureScreen({
   }
 
   const visibleLanguages = languages.filter((language) =>
-    `${language.name} ${NATIVE_NAMES[language.code] ?? ""} ${language.code}`
+    `${language.name} ${langMeta(language.code).native} ${language.code}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -336,26 +302,15 @@ export function ConfigureScreen({
             const checked = targets.has(language.code);
             const limitReached = targets.size >= MAX_TARGETS && !checked;
             return (
-              <button
+              <LanguagePill
                 key={language.code}
-                type="button"
+                code={language.code}
+                selected={checked}
+                showCheck
+                interactive
                 disabled={readOnly || limitReached}
                 onClick={() => toggleTarget(language.code)}
-                aria-pressed={checked}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${checked ? "border-accent bg-accent-soft text-accent-deep" : "border-border bg-surface"} ${limitReached ? "cursor-not-allowed opacity-45" : "hover:border-accent"}`}
-              >
-                <span>
-                  {REGIONS[language.code] ?? language.code.toUpperCase()}
-                </span>
-                <span>{language.name}</span>
-                {NATIVE_NAMES[language.code] &&
-                  NATIVE_NAMES[language.code] !== language.name && (
-                    <span className="text-xs text-ink-muted">
-                      {NATIVE_NAMES[language.code]}
-                    </span>
-                  )}
-                {checked && <span aria-hidden="true">✓</span>}
-              </button>
+              />
             );
           })}
         </div>

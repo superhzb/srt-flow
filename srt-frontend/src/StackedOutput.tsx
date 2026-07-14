@@ -20,31 +20,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { errMessage, fetchStackedOutput, stackedDownloadUrl } from "./api.ts";
+import { langMeta } from "./languages.ts";
 import { parseStackedPreview } from "./stackedPreview.ts";
 import { Button, MonoLabel } from "./ui.tsx";
-
-const labels: Record<string, string> = {
-  en: "EN",
-  fr: "FR",
-  zh: "中文",
-  ja: "日本語",
-  ko: "한국어",
-  es: "ES",
-  de: "DE",
-  it: "IT",
-  pt: "PT",
-};
-const languageMeta: Record<string, { native: string; tint: string }> = {
-  fr: { native: "Français", tint: "#94a3b8" },
-  en: { native: "English", tint: "#00a7c4" },
-  es: { native: "Español", tint: "#6366f1" },
-  zh: { native: "中文", tint: "#12b5a3" },
-  ja: { native: "日本語", tint: "#3b82f6" },
-  ko: { native: "한국어", tint: "#ec4899" },
-  de: { native: "Deutsch", tint: "#f59e0b" },
-  pt: { native: "Português", tint: "#14b8a6" },
-  it: { native: "Italiano", tint: "#84cc16" },
-};
 
 export function StackedOutput({
   jobId,
@@ -213,20 +191,18 @@ export function StackedOutput({
               {active ? (
                 <div
                   className="flex items-center gap-2 rounded-[10px] border border-accent border-l-[3px] bg-surface px-3 py-2 shadow-[0_8px_18px_-8px_rgba(0,167,196,.45)]"
-                  style={{
-                    borderLeftColor:
-                      languageMeta[active]?.tint ?? "#94a3b8",
-                  }}
+                  style={{ borderLeftColor: langMeta(active).tint }}
                 >
                   <span className="font-mono text-sm text-[#c2c9d3]">⠿</span>
+                  <span aria-hidden="true">{langMeta(active).flag}</span>
                   <span
                     className="font-mono text-[11px] font-bold"
-                    style={{ color: languageMeta[active]?.tint }}
+                    style={{ color: langMeta(active).tint }}
                   >
-                    {labels[active] ?? active.toUpperCase()}
+                    {active.toUpperCase()}
                   </span>
                   <span className="text-xs text-ink-muted">
-                    {languageMeta[active]?.native ?? active}
+                    {langMeta(active).native}
                   </span>
                 </div>
               ) : null}
@@ -293,7 +269,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
           </header>
           <div className="space-y-[7px]">
             {order.map((lang, lineIndex) => {
-              const tint = languageMeta[lang]?.tint ?? "#94a3b8";
+              const tint = langMeta(lang).tint;
               return (
                 <div
                   key={lang}
@@ -304,7 +280,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
                     className="w-12 shrink-0 pt-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[.05em]"
                     style={{ color: tint }}
                   >
-                    {labels[lang] ?? lang.toUpperCase()}
+                    {lang.toUpperCase()}
                   </span>
                   <span
                     className="min-w-0 whitespace-pre-wrap text-[13.5px] leading-[1.5] text-[#20242e]"
@@ -347,10 +323,7 @@ function SortableRow({
     transition,
     isDragging,
   } = useSortable({ id: lang });
-  const meta = languageMeta[lang] ?? {
-    native: lang.toUpperCase(),
-    tint: "#94a3b8",
-  };
+  const meta = langMeta(lang);
   if (compact) {
     return (
       <li
@@ -372,8 +345,9 @@ function SortableRow({
         >
           ⠿
         </button>
+        <span aria-hidden="true">{meta.flag}</span>
         <span className="font-mono text-[11px] font-bold" style={{ color: meta.tint }}>
-          {labels[lang] ?? lang.toUpperCase()}
+          {lang.toUpperCase()}
         </span>
         <span className="text-xs text-ink-muted">{meta.native}</span>
       </li>
@@ -395,9 +369,11 @@ function SortableRow({
       >
         ⠿
       </button>
-      <span className="w-16 font-mono text-sm font-medium">
-        {labels[lang] ?? lang.toUpperCase()}
+      <span aria-hidden="true">{meta.flag}</span>
+      <span className="w-10 font-mono text-sm font-medium">
+        {lang.toUpperCase()}
       </span>
+      <span className="text-sm text-ink-muted">{meta.native}</span>
       {source && <MonoLabel>original</MonoLabel>}
       <span className="ml-auto font-mono text-[10px] text-faint">
         {index + 1}
