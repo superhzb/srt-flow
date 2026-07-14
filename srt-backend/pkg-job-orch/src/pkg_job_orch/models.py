@@ -20,6 +20,8 @@ from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 __all__ = [
+    "CreditLedgerEntry",
+    "FunnelEvent",
     "Job",
     "JobStatus",
     "ProcessedEvent",
@@ -90,6 +92,7 @@ class User(SQLModel, table=True):
     id: str = Field(primary_key=True)
     email: str
     tier: str = Field(default="free")
+    purchased_minutes: int = Field(default=0)
     google_sub: str | None = Field(default=None, unique=True)
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -100,10 +103,47 @@ class ProcessedEvent(SQLModel, table=True):
     __tablename__: Any = "processed_events"
 
     event_id: str = Field(primary_key=True)
-    session_id: str
+    session_id: str = Field(unique=True)
     user_id: str = Field(foreign_key="user.id", index=True)
     paid_at: str
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class CreditLedgerEntry(SQLModel, table=True):
+    """Append-only purchased-credit and metered-usage audit row."""
+
+    __tablename__: Any = "credit_ledger"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(foreign_key="user.id", index=True)
+    entry_type: str = Field(index=True)
+    minutes_delta: int = Field(default=0)
+    balance_after: int | None = Field(default=None, index=True)
+    usage_minutes: int = Field(default=0)
+    usage_month: str | None = Field(default=None, index=True)
+    idempotency_key: str = Field(unique=True)
+    session_id: str | None = Field(default=None, unique=True)
+    event_id: str | None = Field(default=None)
+    job_id: str | None = Field(default=None, unique=True)
+    pack: str | None = Field(default=None)
+    amount_cents: int | None = Field(default=None)
+    currency: str | None = Field(default=None)
+    payment_intent_id: str | None = Field(default=None, index=True)
+    charge_id: str | None = Field(default=None, index=True)
+    reason: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
+class FunnelEvent(SQLModel, table=True):
+    """Queryable sign-up/checkout funnel event."""
+
+    __tablename__: Any = "funnel_events"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(foreign_key="user.id", index=True)
+    event_type: str = Field(index=True)
+    pack: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 
 class Job(SQLModel, table=True):
@@ -111,6 +151,7 @@ class Job(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     filename: str | None = Field(default=None)
+    source_minutes: int = Field(default=0)
     user_id: str = Field(foreign_key="user.id", index=True)
     status: JobStatus = Field(default="pending", index=True)
     worker: str

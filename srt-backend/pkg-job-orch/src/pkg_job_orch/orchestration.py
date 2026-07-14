@@ -24,6 +24,7 @@ from pkg_srt_services.api import Cue, parse, serialize
 from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
+from .credits import debit_job_once
 from .db import session_scope
 from .models import Job, User, dropped_to_json, tgt_langs_from_csv, tgt_langs_to_csv
 from .worker_client import (
@@ -126,6 +127,7 @@ class JobContext:
     storage: Storage
     dev_user_id: str
     notifier: Notifier
+    free_tier_monthly_limit: int = 20
     # Patchable seam: tests swap this for a fake. Real code uses
     # ``default_worker_client``. Default assigned in __post_init__ to
     # sidestep dataclass field-default-vs-factory awkwardness.
@@ -168,6 +170,8 @@ def enqueue(
     targets: list[str],
     worker_id: str,
     filename: str | None = None,
+    user_id: str | None = None,
+    source_minutes: int = 0,
 ) -> EnqueueResult:
     """Persist a new pending job and put its id on the queue.
 
@@ -207,12 +211,14 @@ def enqueue(
 
     job_id = uuid.uuid4().hex
     input_srt = serialize(cues)
-    ctx.storage.save(ctx.dev_user_id, job_id, "input.srt", input_srt.encode("utf-8"))
+    owner_id = user_id or ctx.dev_user_id
+    ctx.storage.save(owner_id, job_id, "input.srt", input_srt.encode("utf-8"))
 
     job = Job(
         id=job_id,
         filename=filename,
-        user_id=ctx.dev_user_id,
+        user_id=owner_id,
+        source_minutes=source_minutes,
         status="pending",
         worker=worker_id,
         src_lang=source_lang,
@@ -296,9 +302,10 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
         worker = job.worker
         src_lang = job.src_lang
         targets = tgt_langs_from_csv(job.tgt_langs)
+        user_id = job.user_id
 
     try:
-        outcome = await _run_translation(ctx, job_id, worker, src_lang, targets)
+        outcome = await _run_translation(ctx, job_id, user_id, worker, src_lang, targets)
     except WorkerStreamError as exc:
         logger.exception("worker_loop: worker stream failed for job %s", job_id)
         _mark_failed(job_id, str(exc), "worker_stream")
@@ -312,7 +319,7 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
 
     # All-or-nothing: write all outputs, then flip status=done in one tx.
     try:
-        _land_results(ctx, job_id, outcome)
+        _land_results(ctx, job_id, user_id, outcome)
     except LandingError as exc:
         logger.exception("worker_loop: landing results failed for job %s", job_id)
         _mark_failed(job_id, f"failed to land results: {exc}", "landing", exc.dropped)
@@ -326,13 +333,14 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
 async def _run_translation(
     ctx: JobContext,
     job_id: str,
+    user_id: str,
     worker: str,
     src_lang: str,
     targets: list[str],
 ) -> StreamOutcome:
     """Resolve worker, parse input.srt → cues, stream-translate."""
     base_url = worker_base_url(worker)
-    raw_input = ctx.storage.get(ctx.dev_user_id, job_id, "input.srt")
+    raw_input = ctx.storage.get(user_id, job_id, "input.srt")
     cues = parse(raw_input.decode("utf-8"))
     segments = build_segments(cues, src_lang)
 
@@ -371,15 +379,15 @@ async def _run_translation(
     )
 
 
-def _land_results(ctx: JobContext, job_id: str, outcome: StreamOutcome) -> None:
+def _land_results(ctx: JobContext, job_id: str, user_id: str, outcome: StreamOutcome) -> None:
     """Write one output.<lang>.srt per target, then mark the job done."""
-    cues = parse(ctx.storage.get(ctx.dev_user_id, job_id, "input.srt").decode("utf-8"))
+    cues = parse(ctx.storage.get(user_id, job_id, "input.srt").decode("utf-8"))
     outputs, dropped = _build_outputs(cues, outcome)
 
     try:
         for lang, srt_text in outputs.items():
             ctx.storage.save(
-                ctx.dev_user_id,
+                user_id,
                 job_id,
                 f"output.{lang}.srt",
                 srt_text.encode("utf-8"),
@@ -395,6 +403,7 @@ def _land_results(ctx: JobContext, job_id: str, outcome: StreamOutcome) -> None:
             row.error_kind = None
             row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)
+            debit_job_once(session, row, ctx.free_tier_monthly_limit)
             session.add(row)
             session.commit()
     except Exception as exc:

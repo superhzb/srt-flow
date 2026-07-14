@@ -12,20 +12,26 @@ from __future__ import annotations
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pkg_srt_services.api import Cue, build_stacked_srt, dict_to_cue, parse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel import col, select
 
+from .credits import balance_snapshot, source_minutes
 from .db import session_scope
-from .models import Job, dropped_from_json, progress_from_json, tgt_langs_from_csv
+from .models import Job, User, dropped_from_json, progress_from_json, tgt_langs_from_csv
 from .orchestration import EnqueueError, enqueue
 from .workers import WorkerResolutionError
 
 __all__ = ["router"]
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+async def require_job_user() -> User:
+    """Composition seam overridden by the host app's auth dependency."""
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
 class CreateJobRequest(BaseModel):
@@ -53,12 +59,28 @@ class CreateJobRequest(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
-async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]:
+async def create_job(
+    request: Request,
+    body: CreateJobRequest,
+    user: Annotated[User, Depends(require_job_user)],
+) -> dict[str, str]:
     """Persist a new pending job and enqueue it for the worker_loop."""
     ctx = request.app.state.job_ctx
     cues = _dict_to_cues(body.cues)
+    minutes = source_minutes(cues)
     try:
         with session_scope() as session:
+            free_limit = int(getattr(request.app.state, "free_tier_monthly_limit", 20))
+            balance = balance_snapshot(session, user.id, free_limit)
+            if balance.purchased_minutes < 0 or minutes > balance.available_minutes:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail={
+                        "message": "Insufficient subtitle minutes",
+                        "required_minutes": minutes,
+                        "available_minutes": balance.available_minutes,
+                    },
+                )
             result = enqueue(
                 ctx,
                 session,
@@ -67,6 +89,8 @@ async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]
                 targets=body.targets,
                 worker_id=body.worker,
                 filename=body.filename,
+                user_id=user.id,
+                source_minutes=minutes,
             )
             ctx.queue.put_nowait(result.job_id)
     except EnqueueError as exc:
@@ -78,13 +102,12 @@ async def create_job(request: Request, body: CreateJobRequest) -> dict[str, str]
 
 
 @router.get("")
-async def list_jobs(request: Request) -> dict[str, Any]:
+async def list_jobs(
+    request: Request, user: Annotated[User, Depends(require_job_user)]
+) -> dict[str, Any]:
     """List the dev user's jobs, newest first."""
-    ctx = request.app.state.job_ctx
     with session_scope() as session:
-        stmt = (
-            select(Job).where(Job.user_id == ctx.dev_user_id).order_by(col(Job.created_at).desc())
-        )
+        stmt = select(Job).where(Job.user_id == user.id).order_by(col(Job.created_at).desc())
         jobs = session.exec(stmt).all()
         # Build the response inside the session — Job attrs are only
         # guaranteed live while the session is open.
@@ -93,11 +116,14 @@ async def list_jobs(request: Request) -> dict[str, Any]:
 
 
 @router.get("/{job_id}")
-async def get_job(request: Request, job_id: str) -> dict[str, Any]:
-    ctx = request.app.state.job_ctx
+async def get_job(
+    request: Request,
+    job_id: str,
+    user: Annotated[User, Depends(require_job_user)],
+) -> dict[str, Any]:
     with session_scope() as session:
         job = session.get(Job, job_id)
-        if job is None or job.user_id != ctx.dev_user_id:
+        if job is None or job.user_id != user.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
         out: dict[str, Any] = {
             "id": job.id,
@@ -112,6 +138,7 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
             "error_kind": job.error_kind,
             "attempts": job.attempts,
+            "source_minutes": job.source_minutes,
         }
         progress = progress_from_json(job.progress_by_target)
         targets = tgt_langs_from_csv(job.tgt_langs)
@@ -174,13 +201,14 @@ def _eta_seconds(job: Job, progress: dict[str, dict[str, int]]) -> float | None:
 async def download_job(
     request: Request,
     job_id: str,
+    user: Annotated[User, Depends(require_job_user)],
     lang: Annotated[str | None, Query(description="Target language to download")] = None,
     langs: Annotated[str | None, Query(description="Ordered languages to stack")] = None,
 ) -> StreamingResponse:
     ctx = request.app.state.job_ctx
     with session_scope() as session:
         job = session.get(Job, job_id)
-        if job is None or job.user_id != ctx.dev_user_id:
+        if job is None or job.user_id != user.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
         if job.status != "done":
             raise HTTPException(
@@ -215,15 +243,13 @@ async def download_job(
                     detail=f"unknown language {requested_lang} for this job",
                 )
         try:
-            source_data = ctx.storage.get(ctx.dev_user_id, job_id, "input.srt")
+            source_data = ctx.storage.get(user.id, job_id, "input.srt")
             source_cues = parse(source_data.decode("utf-8"))
             target_texts: dict[str, dict[int, str]] = {}
             for requested_lang in order:
                 if requested_lang == source_lang:
                     continue
-                target_data = ctx.storage.get(
-                    ctx.dev_user_id, job_id, f"output.{requested_lang}.srt"
-                )
+                target_data = ctx.storage.get(user.id, job_id, f"output.{requested_lang}.srt")
                 target_texts[requested_lang] = {
                     cue.index: cue.text for cue in parse(target_data.decode("utf-8"))
                 }
@@ -236,7 +262,7 @@ async def download_job(
         filename = f"{job_id}.stacked.srt"
     else:
         try:
-            data = ctx.storage.get(ctx.dev_user_id, job_id, f"output.{lang}.srt")
+            data = ctx.storage.get(user.id, job_id, f"output.{lang}.srt")
         except Exception as exc:  # noqa: BLE001 — surface storage failure as 404/500
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -15,9 +15,17 @@ import uuid
 from pkg_auth.api import UserStore
 from pkg_auth.models import Tier
 from pkg_billing.api import BillingStore, UserId
-from pkg_job_orch.api import DEV_USER_ID, ProcessedEvent, User, session_scope
+from pkg_job_orch.api import (
+    DEV_USER_ID,
+    CreditLedgerEntry,
+    FunnelEvent,
+    ProcessedEvent,
+    User,
+    balance_snapshot,
+    session_scope,
+)
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import select
+from sqlmodel import Session, select
 
 __all__ = ["AppStore"]
 
@@ -44,13 +52,12 @@ class AppStore(UserStore, BillingStore):
                     id=uuid.uuid4().hex,
                     google_sub=google_sub,
                     email=email,
-                    tier=tier,
+                    tier="free",
                 )
                 session.add(row)
             else:
                 row.email = email
-                # Sticky-paid: never downgrade a paid user on re-upsert.
-                row.tier = "paid" if row.tier == "paid" and tier == "free" else tier
+                row.tier = "free"
             session.flush()
             return row
 
@@ -59,12 +66,12 @@ class AppStore(UserStore, BillingStore):
         with session_scope(self._database_url) as session:
             row = session.get(User, DEV_USER_ID)
             if row is None:
-                row = User(id=DEV_USER_ID, google_sub=google_sub, email=email, tier=tier)
+                row = User(id=DEV_USER_ID, google_sub=google_sub, email=email, tier="free")
                 session.add(row)
             else:
                 row.google_sub = google_sub
                 row.email = email
-                row.tier = "paid" if row.tier == "paid" and tier == "free" else tier
+                row.tier = "free"
             session.flush()
             return row
 
@@ -76,27 +83,28 @@ class AppStore(UserStore, BillingStore):
         with session_scope(self._database_url) as session:
             return list(session.exec(select(User).where(User.email == email)).all())
 
-    async def apply_paid_webhook_once(
+    async def apply_purchase_once(
         self,
         event_id: str,
         session_id: str,
         user_id: UserId,
         paid_at: str,
+        *,
+        pack: str,
+        minutes: int,
+        amount_cents: int,
+        currency: str,
+        payment_intent_id: str | None,
+        charge_id: str | None,
     ) -> bool:
-        """Insert the processed-event row and flip the user to paid in one txn.
-
-        The unique PK on ``processed_events.event_id`` is the dedupe guard:
-        a duplicate insert raises ``IntegrityError`` and the whole txn rolls
-        back, so the tier is never flipped without recording the event (and
-        vice-versa). Returns ``False`` if the event was already recorded.
-        """
+        """Credit a paid Checkout Session atomically, deduped by Session ID."""
         try:
             with session_scope(self._database_url) as session:
                 user_id_str = str(user_id)
                 user = session.get(User, user_id_str)
                 if user is None:
                     logger.warning(
-                        "apply_paid_webhook_once: user %s not found; ignoring event %s",
+                        "apply_purchase_once: user %s not found; ignoring event %s",
                         user_id_str,
                         event_id,
                     )
@@ -109,11 +117,232 @@ class AppStore(UserStore, BillingStore):
                         paid_at=paid_at,
                     )
                 )
+                session.add(
+                    CreditLedgerEntry(
+                        id=uuid.uuid4().hex,
+                        user_id=user_id_str,
+                        entry_type="purchase",
+                        minutes_delta=minutes,
+                        balance_after=user.purchased_minutes + minutes,
+                        idempotency_key=f"purchase:{session_id}",
+                        session_id=session_id,
+                        event_id=event_id,
+                        pack=pack,
+                        amount_cents=amount_cents,
+                        currency=currency,
+                        payment_intent_id=payment_intent_id,
+                        charge_id=charge_id,
+                        reason="Stripe Checkout purchase",
+                    )
+                )
+                user.purchased_minutes += minutes
+                user.tier = "free"
+                session.add(user)
+        except IntegrityError:
+            return False
+        return True
+
+    async def apply_paid_webhook_once(
+        self,
+        event_id: str,
+        session_id: str,
+        user_id: UserId,
+        paid_at: str,
+    ) -> bool:
+        """Deprecated binary-tier helper retained for API compatibility."""
+        try:
+            with session_scope(self._database_url) as session:
+                user = session.get(User, str(user_id))
+                if user is None:
+                    return False
+                session.add(
+                    ProcessedEvent(
+                        event_id=event_id,
+                        session_id=session_id,
+                        user_id=str(user_id),
+                        paid_at=paid_at,
+                    )
+                )
                 user.tier = "paid"
                 session.add(user)
         except IntegrityError:
             return False
         return True
+
+    async def apply_refund_once(
+        self,
+        *,
+        event_id: str,
+        refund_id: str,
+        amount_cents: int,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+        reason: str | None,
+        created_at: str,
+    ) -> bool:
+        del created_at
+        return self._apply_reversal(
+            event_id=event_id,
+            key=f"refund:{refund_id}",
+            entry_type="refund",
+            amount_cents=amount_cents,
+            payment_intent_id=payment_intent_id,
+            charge_id=charge_id,
+            reason=reason,
+        )
+
+    async def apply_dispute_once(
+        self,
+        *,
+        event_id: str,
+        dispute_id: str,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+        reason: str | None,
+        reinstated: bool,
+        created_at: str,
+    ) -> bool:
+        del created_at
+        if not reinstated:
+            return self._apply_reversal(
+                event_id=event_id,
+                key=f"dispute:{dispute_id}",
+                entry_type="dispute",
+                amount_cents=None,
+                payment_intent_id=payment_intent_id,
+                charge_id=charge_id,
+                reason=reason,
+            )
+        try:
+            with session_scope(self._database_url) as session:
+                original = session.exec(
+                    select(CreditLedgerEntry).where(
+                        CreditLedgerEntry.idempotency_key == f"dispute:{dispute_id}"
+                    )
+                ).first()
+                if original is None:
+                    return False
+                user = session.get(User, original.user_id)
+                if user is None:
+                    return False
+                minutes = -original.minutes_delta
+                session.add(
+                    CreditLedgerEntry(
+                        id=uuid.uuid4().hex,
+                        user_id=user.id,
+                        entry_type="dispute_reinstated",
+                        minutes_delta=minutes,
+                        balance_after=user.purchased_minutes + minutes,
+                        idempotency_key=f"dispute_reinstated:{dispute_id}",
+                        event_id=event_id,
+                        payment_intent_id=original.payment_intent_id,
+                        charge_id=original.charge_id,
+                        reason=reason or "dispute funds reinstated",
+                    )
+                )
+                user.purchased_minutes += minutes
+                session.add(user)
+        except IntegrityError:
+            return False
+        return True
+
+    def _apply_reversal(
+        self,
+        *,
+        event_id: str,
+        key: str,
+        entry_type: str,
+        amount_cents: int | None,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+        reason: str | None,
+    ) -> bool:
+        import math
+
+        try:
+            with session_scope(self._database_url) as session:
+                purchase = self._find_purchase(session, payment_intent_id, charge_id)
+                if purchase is None or purchase.amount_cents is None:
+                    return False
+                user = session.get(User, purchase.user_id)
+                if user is None:
+                    return False
+                requested = (
+                    purchase.minutes_delta
+                    if amount_cents is None
+                    else math.ceil(amount_cents / purchase.amount_cents * purchase.minutes_delta)
+                )
+                related = session.exec(
+                    select(CreditLedgerEntry).where(
+                        CreditLedgerEntry.user_id == purchase.user_id,
+                        CreditLedgerEntry.payment_intent_id == purchase.payment_intent_id,
+                    )
+                ).all()
+                net_reversed = -sum(
+                    row.minutes_delta
+                    for row in related
+                    if row.entry_type in {"refund", "dispute", "dispute_reinstated"}
+                )
+                minutes = min(requested, max(0, purchase.minutes_delta - net_reversed))
+                session.add(
+                    CreditLedgerEntry(
+                        id=uuid.uuid4().hex,
+                        user_id=purchase.user_id,
+                        entry_type=entry_type,
+                        minutes_delta=-minutes,
+                        balance_after=user.purchased_minutes - minutes,
+                        idempotency_key=key,
+                        event_id=event_id,
+                        pack=purchase.pack,
+                        amount_cents=amount_cents,
+                        currency=purchase.currency,
+                        payment_intent_id=purchase.payment_intent_id,
+                        charge_id=purchase.charge_id,
+                        reason=reason,
+                    )
+                )
+                user.purchased_minutes -= minutes
+                session.add(user)
+        except IntegrityError:
+            return False
+        return True
+
+    @staticmethod
+    def _find_purchase(
+        session: Session,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+    ) -> CreditLedgerEntry | None:
+        stmt = select(CreditLedgerEntry).where(CreditLedgerEntry.entry_type == "purchase")
+        if payment_intent_id is not None:
+            stmt = stmt.where(CreditLedgerEntry.payment_intent_id == payment_intent_id)
+        elif charge_id is not None:
+            stmt = stmt.where(CreditLedgerEntry.charge_id == charge_id)
+        else:
+            return None
+        return session.exec(stmt).first()
+
+    async def balance(self, user_id: UserId, free_limit: int) -> dict[str, int]:
+        with session_scope(self._database_url) as session:
+            value = balance_snapshot(session, str(user_id), free_limit)
+            return {
+                "free_limit": value.free_limit,
+                "free_used": value.free_used,
+                "free_remaining": value.free_remaining,
+                "purchased_minutes": value.purchased_minutes,
+                "available_minutes": value.available_minutes,
+            }
+
+    async def record_checkout_started(self, user_id: UserId, pack: str) -> None:
+        with session_scope(self._database_url) as session:
+            session.add(
+                FunnelEvent(
+                    id=uuid.uuid4().hex,
+                    user_id=str(user_id),
+                    event_type="checkout_started",
+                    pack=pack,
+                )
+            )
 
     async def has_processed_event(self, event_id: str) -> bool:
         with session_scope(self._database_url) as session:

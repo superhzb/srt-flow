@@ -165,7 +165,13 @@ export function StackedOutput({
           onDragCancel={() => setActive(null)}
         >
           <SortableContext items={order} strategy={verticalListSortingStrategy}>
-            <ol className={historyHeader ? "flex flex-col items-start gap-2" : "my-4 space-y-2"}>
+            <ol
+              className={
+                historyHeader
+                  ? "flex flex-col items-start gap-2"
+                  : "my-4 space-y-2"
+              }
+            >
               {order.map((lang, i) => (
                 <SortableRow
                   key={lang}
@@ -346,7 +352,10 @@ function SortableRow({
           ⠿
         </button>
         <span aria-hidden="true">{meta.flag}</span>
-        <span className="font-mono text-[11px] font-bold" style={{ color: meta.tint }}>
+        <span
+          className="font-mono text-[11px] font-bold"
+          style={{ color: meta.tint }}
+        >
           {lang.toUpperCase()}
         </span>
         <span className="text-xs text-ink-muted">{meta.native}</span>

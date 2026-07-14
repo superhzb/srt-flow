@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def test_auth_routes_are_mounted(
+def test_auth_routes_reset_legacy_paid_user_to_free(
     monkeypatch: pytest.MonkeyPatch,
     temp_env: dict[str, str],
 ) -> None:
@@ -27,8 +27,8 @@ def test_auth_routes_are_mounted(
     assert me.status_code == 200
     assert me.json() == {
         "email": "dev@example.test",
-        "tier": "paid",
+        "tier": "free",
         "is_admin": True,
     }
-    assert paid.status_code == 200
-    assert paid.json() == {"ok": True}
+    assert paid.status_code == 402
+    assert paid.json() == {"detail": "Upgrade required"}

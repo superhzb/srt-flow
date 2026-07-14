@@ -19,6 +19,12 @@ __all__ = [
     "session_scope",
     # models
     "Job",
+    "CreditLedgerEntry",
+    "FunnelEvent",
+    "BalanceSnapshot",
+    "balance_snapshot",
+    "debit_job_once",
+    "source_minutes",
     "ProcessedEvent",
     "User",
     "dropped_from_json",
@@ -57,9 +63,11 @@ __all__ = [
     "workers_env",
     # router
     "router",
+    "require_job_user",
 ]
 
 from .config import JobOrchSettings, load_settings
+from .credits import BalanceSnapshot, balance_snapshot, debit_job_once, source_minutes
 from .db import (
     DEFAULT_DATABASE_URL,
     get_engine,
@@ -69,6 +77,8 @@ from .db import (
     session_scope,
 )
 from .models import (
+    CreditLedgerEntry,
+    FunnelEvent,
     Job,
     ProcessedEvent,
     User,
@@ -94,7 +104,7 @@ from .orchestration import (
     seed_dev_user,
     worker_loop,
 )
-from .routes import router
+from .routes import require_job_user, router
 from .worker_client import (
     StreamOutcome,
     WorkerStreamError,

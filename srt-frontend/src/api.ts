@@ -98,6 +98,16 @@ export interface CheckoutResponse {
   url: string;
 }
 
+export type CreditPack = "small" | "large";
+
+export interface BillingBalance {
+  free_limit: number;
+  free_used: number;
+  free_remaining: number;
+  purchased_minutes: number;
+  available_minutes: number;
+}
+
 export async function prepareSrt(file: File): Promise<PrepareResponse> {
   const form = new FormData();
   form.append("file", file);
@@ -160,12 +170,22 @@ export async function logout(): Promise<void> {
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
 }
 
-export async function startCheckout(): Promise<CheckoutResponse> {
-  const resp = await fetch("/api/billing/checkout", { method: "POST" });
+export async function startCheckout(
+  pack: CreditPack,
+): Promise<CheckoutResponse> {
+  const resp = await fetch("/api/billing/checkout", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pack }),
+  });
   if (resp.status === 401) throw new Error("Log in before upgrading");
   if (resp.status === 402) throw new Error("Upgrade is required");
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return (await resp.json()) as CheckoutResponse;
+}
+
+export async function getBillingBalance(): Promise<BillingBalance> {
+  return apiFetch<BillingBalance>("/api/billing/balance");
 }
 
 export function googleLoginUrl(): string {

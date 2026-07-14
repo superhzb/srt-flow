@@ -28,9 +28,7 @@ from pkg_billing.api import (
 
 
 class _FakeBillingStore:
-    """In-process BillingStore for unit tests (no DB). Mirrors the atomic
-    apply_paid_webhook_once contract so webhook idempotency is exercised
-    without a SQLite round-trip."""
+    """In-process BillingStore for unit tests (no DB)."""
 
     def __init__(
         self,
@@ -39,14 +37,50 @@ class _FakeBillingStore:
     ) -> None:
         self._users_by_id: dict[str, User] = {str(u.id): u for u in users or []}
         self._processed_events: set[str] = set()
+        self._processed_sessions: set[str] = set()
         self._usage = dict(usage or {})
-        self.paid_records: list[dict[str, str | int]] = []
+        self.purchase_records: list[dict[str, str | int | None]] = []
+        self.checkout_records: list[dict[str, str | int]] = []
 
     async def get_by_id(self, user_id: str | int) -> User | None:
         return self._users_by_id.get(str(user_id))
 
     async def get_by_email(self, email: str) -> list[User]:
         return [user for user in self._users_by_id.values() if user.email == email]
+
+    async def apply_purchase_once(
+        self,
+        event_id: str,
+        session_id: str,
+        user_id: str | int,
+        paid_at: str,
+        *,
+        pack: str,
+        minutes: int,
+        amount_cents: int,
+        currency: str,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+    ) -> bool:
+        if session_id in self._processed_sessions:
+            return False
+        self._processed_events.add(event_id)
+        self._processed_sessions.add(session_id)
+        self.purchase_records.append(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+                "session_id": session_id,
+                "paid_at": paid_at,
+                "pack": pack,
+                "minutes": minutes,
+                "amount_cents": amount_cents,
+                "currency": currency,
+                "payment_intent_id": payment_intent_id,
+                "charge_id": charge_id,
+            }
+        )
+        return True
 
     async def apply_paid_webhook_once(
         self,
@@ -55,23 +89,65 @@ class _FakeBillingStore:
         user_id: str | int,
         paid_at: str,
     ) -> bool:
-        if event_id in self._processed_events:
-            return False
-        self._processed_events.add(event_id)
-        key = str(user_id)
-        user = self._users_by_id.get(key)
-        if user is not None:
-            user.tier = "paid"
-            self._users_by_id[key] = user
-        self.paid_records.append(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-                "session_id": session_id,
-                "paid_at": paid_at,
-            }
+        del event_id, session_id, user_id, paid_at
+        raise AssertionError("legacy paid-tier fulfillment must not be used")
+
+    async def apply_refund_once(
+        self,
+        *,
+        event_id: str,
+        refund_id: str,
+        amount_cents: int,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+        reason: str | None,
+        created_at: str,
+    ) -> bool:
+        del (
+            event_id,
+            refund_id,
+            amount_cents,
+            payment_intent_id,
+            charge_id,
+            reason,
+            created_at,
         )
-        return True
+        return False
+
+    async def apply_dispute_once(
+        self,
+        *,
+        event_id: str,
+        dispute_id: str,
+        payment_intent_id: str | None,
+        charge_id: str | None,
+        reason: str | None,
+        reinstated: bool,
+        created_at: str,
+    ) -> bool:
+        del (
+            event_id,
+            dispute_id,
+            payment_intent_id,
+            charge_id,
+            reason,
+            reinstated,
+            created_at,
+        )
+        return False
+
+    async def balance(self, user_id: str | int, free_limit: int) -> dict[str, int]:
+        del user_id
+        return {
+            "free_limit": free_limit,
+            "free_used": 0,
+            "free_remaining": free_limit,
+            "purchased_minutes": 0,
+            "available_minutes": free_limit,
+        }
+
+    async def record_checkout_started(self, user_id: str | int, pack: str) -> None:
+        self.checkout_records.append({"user_id": user_id, "pack": pack})
 
     async def has_processed_event(self, event_id: str) -> bool:
         return event_id in self._processed_events
@@ -87,6 +163,11 @@ def billing_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("BILLING_REF_SECRET", "ref-secret")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
     monkeypatch.setenv("FREE_TIER_MONTHLY_LIMIT", "2")
+    monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
+    monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
+    monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
     reset_settings_cache()
     yield
     reset_settings_cache()
@@ -127,14 +208,16 @@ def test_checkout_session_config_does_not_require_payment_link(
 ) -> None:
     monkeypatch.delenv("BILLING_PAYMENT_LINK", raising=False)
     monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
-    monkeypatch.setenv("STRIPE_PRICE_ID", "price_123")
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
 
     config = get_config()
 
     assert config.payment_link is None
     assert config.stripe_secret == "sk_test_123"
-    assert config.stripe_price_id == "price_123"
+    assert config.stripe_small_price_id == "price_small"
+    assert config.stripe_large_price_id == "price_large"
     assert config.app_base_url == "http://localhost:5730"
 
 
@@ -142,7 +225,8 @@ def test_checkout_session_config_rejects_partial_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
-    monkeypatch.setenv("STRIPE_PRICE_ID", "price_123")
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.delenv("APP_BASE_URL", raising=False)
 
     with pytest.raises(RuntimeError, match="must be set together"):
@@ -153,7 +237,8 @@ def test_checkout_session_rejects_live_secret_outside_prod(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("STRIPE_SECRET", "sk_live_123")
-    monkeypatch.setenv("STRIPE_PRICE_ID", "price_123")
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
 
     with pytest.raises(RuntimeError, match="Non-prod STRIPE_SECRET"):
@@ -183,7 +268,8 @@ def test_create_checkout_session_sends_signed_reference(
         webhook_secret="whsec_test",
         free_tier_monthly_limit=2,
         stripe_secret="sk_test_123",
-        stripe_price_id="price_123",
+        stripe_small_price_id="price_small",
+        stripe_large_price_id="price_large",
         app_base_url="http://localhost:5730/",
     )
 
@@ -193,7 +279,9 @@ def test_create_checkout_session_sends_signed_reference(
     assert calls == [
         {
             "api_key": "sk_test_123",
-            "price_id": "price_123",
+            "price_id": "price_small",
+            "pack": "small",
+            "minutes": 100,
             "client_reference_id": _client_reference_id("42", "ref-secret"),
             "customer_email": "user@example.com",
             "success_url": "http://localhost:5730/?checkout=success",
@@ -221,30 +309,35 @@ def test_check_quota_raises_402_when_free_limit_reached() -> None:
     assert exc_info.value.status_code == 402
 
 
-def test_webhook_marks_signed_user_paid() -> None:
+def test_webhook_credits_signed_user_pack() -> None:
     user = User(id="7", google_sub="sub", email="user@example.com", tier="free")
     store = _FakeBillingStore([user])
     client = _client(store)
     ref = _client_reference_id(user.id, "ref-secret")
     event = _event(
         event_id="evt_1",
-        session={
-            "id": "cs_1",
-            "payment_status": "paid",
-            "client_reference_id": ref,
-            "customer_details": {"email": "other@example.com"},
-        },
+        session=_paid_session(
+            "cs_1",
+            client_reference_id=ref,
+            customer_details={"email": "other@example.com"},
+        ),
     )
 
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert store.paid_records == [
+    assert store.purchase_records == [
         {
             "user_id": "7",
             "event_id": "evt_1",
             "session_id": "cs_1",
             "paid_at": "2023-11-14T22:13:20+00:00",
+            "pack": "small",
+            "minutes": 100,
+            "amount_cents": 399,
+            "currency": "usd",
+            "payment_intent_id": "pi_cs_1",
+            "charge_id": "ch_cs_1",
         }
     ]
 
@@ -263,7 +356,7 @@ def test_webhook_rejects_bad_signature() -> None:
     )
 
     assert response.status_code == 400
-    assert store.paid_records == []
+    assert store.purchase_records == []
 
 
 def test_webhook_does_not_trust_tampered_reference() -> None:
@@ -286,7 +379,7 @@ def test_webhook_does_not_trust_tampered_reference() -> None:
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert store.paid_records == []
+    assert store.purchase_records == []
 
 
 def test_webhook_uses_strict_email_fallback() -> None:
@@ -295,17 +388,16 @@ def test_webhook_uses_strict_email_fallback() -> None:
     client = _client(store)
     event = _event(
         event_id="evt_email",
-        session={
-            "id": "cs_email",
-            "payment_status": "paid",
-            "customer_details": {"email": "user@example.com"},
-        },
+        session=_paid_session(
+            "cs_email",
+            customer_details={"email": "user@example.com"},
+        ),
     )
 
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert [record["user_id"] for record in store.paid_records] == ["7"]
+    assert [record["user_id"] for record in store.purchase_records] == ["7"]
 
 
 def test_webhook_marks_paid_on_async_payment_succeeded() -> None:
@@ -315,14 +407,14 @@ def test_webhook_marks_paid_on_async_payment_succeeded() -> None:
     ref = _client_reference_id(user.id, "ref-secret")
     event = _event(
         event_id="evt_async",
-        session={"id": "cs_async", "payment_status": "paid", "client_reference_id": ref},
+        session=_paid_session("cs_async", client_reference_id=ref),
         event_type="checkout.session.async_payment_succeeded",
     )
 
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert [record["event_id"] for record in store.paid_records] == ["evt_async"]
+    assert [record["event_id"] for record in store.purchase_records] == ["evt_async"]
 
 
 def test_webhook_ignores_unknown_event_types() -> None:
@@ -338,7 +430,7 @@ def test_webhook_ignores_unknown_event_types() -> None:
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert store.paid_records == []
+    assert store.purchase_records == []
 
 
 def test_webhook_skips_ambiguous_email_fallback() -> None:
@@ -358,17 +450,17 @@ def test_webhook_skips_ambiguous_email_fallback() -> None:
     status_code = _post_webhook(client, event)
 
     assert status_code == 200
-    assert store.paid_records == []
+    assert store.purchase_records == []
 
 
-def test_webhook_is_idempotent_by_event_id() -> None:
+def test_webhook_is_idempotent_by_session_id() -> None:
     user = User(id="7", google_sub="sub", email="user@example.com", tier="free")
     store = _FakeBillingStore([user])
     client = _client(store)
     ref = _client_reference_id(user.id, "ref-secret")
     event = _event(
         event_id="evt_once",
-        session={"id": "cs_once", "payment_status": "paid", "client_reference_id": ref},
+        session=_paid_session("cs_once", client_reference_id=ref),
     )
 
     first = _post_webhook(client, event)
@@ -376,7 +468,7 @@ def test_webhook_is_idempotent_by_event_id() -> None:
 
     assert first == 200
     assert second == 200
-    assert [record["event_id"] for record in store.paid_records] == ["evt_once"]
+    assert [record["event_id"] for record in store.purchase_records] == ["evt_once"]
 
 
 def _client(store: _FakeBillingStore) -> TestClient:
@@ -403,6 +495,29 @@ def _event(
         "created": 1_700_000_000,
         "data": {"object": session},
     }
+
+
+def _paid_session(session_id: str, **overrides: Any) -> dict[str, Any]:
+    session: dict[str, Any] = {
+        "id": session_id,
+        "payment_status": "paid",
+        "line_items": {
+            "data": [
+                {
+                    "price": {
+                        "id": "price_small",
+                        "metadata": {"pack": "small", "minutes": "100"},
+                    }
+                }
+            ]
+        },
+        "amount_total": 399,
+        "currency": "usd",
+        "payment_intent": f"pi_{session_id}",
+        "charge": f"ch_{session_id}",
+    }
+    session.update(overrides)
+    return session
 
 
 def _body(event: dict[str, Any]) -> bytes:

@@ -1,8 +1,8 @@
-import { googleLoginUrl } from "./api.ts";
+import { googleLoginUrl, startCheckout, type CreditPack } from "./api.ts";
 import { LanguagePill } from "./components.tsx";
 import { DEMO_LINE, LANG_LABEL } from "./demoLine.ts";
 import { detectTargetLang } from "./lib.ts";
-import { FlowLogo, MonoLabel } from "./ui.tsx";
+import { Button, Card, FlowLogo, MonoLabel } from "./ui.tsx";
 import cockpit from "./assets/cockpit.webp";
 
 const login = () => {
@@ -18,6 +18,12 @@ export function LandingScreen({
 } = {}) {
   const target = detectTargetLang();
   const primaryAction = signedIn && onOpenApp ? onOpenApp : login;
+  const paidAction = (pack: CreditPack) => {
+    if (!signedIn) return login();
+    void startCheckout(pack).then(({ url }) => {
+      window.location.href = url;
+    });
+  };
   return (
     <main className="min-h-screen bg-surface text-ink">
       <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
@@ -101,9 +107,7 @@ export function LandingScreen({
           <TransformationArrow />
           <VideoDemo badge={`EN + ${LANG_LABEL[target]}`}>
             {target !== "en" && (
-              <p className="font-normal text-[#FFE066]">
-                {DEMO_LINE[target]}
-              </p>
+              <p className="font-normal text-[#FFE066]">{DEMO_LINE[target]}</p>
             )}
             <p>{DEMO_LINE.en}</p>
           </VideoDemo>
@@ -188,11 +192,74 @@ export function LandingScreen({
         <div className="mx-auto max-w-6xl">
           <MonoLabel>simple pricing</MonoLabel>
           <h2 className="mt-4 text-3xl font-semibold">
-            Start free. Scale when your audience does.
+            Start free. Pay once when you need more.
           </h2>
           <p className="mt-4 text-ink-muted">
-            20 subtitle minutes every month, with no card required.
+            Buy minutes, not a subscription. Metered by source subtitle length.
           </p>
+          <div className="mt-9 grid gap-6 md:grid-cols-3">
+            {[
+              {
+                name: "Free",
+                price: "$0",
+                minutes: "20 min / month",
+                unit: "No card required",
+                features: "9 languages · real trial",
+                cta: "Start free",
+                pack: null,
+              },
+              {
+                name: "Small pack",
+                price: "$3.99",
+                minutes: "100 min",
+                unit: "$0.040/min",
+                features: "9 languages · ~1–2 shows",
+                cta: "Buy 100 min",
+                pack: "small" as const,
+              },
+              {
+                name: "Large pack",
+                price: "$29.99",
+                minutes: "1000 min",
+                unit: "$0.030/min",
+                features: "9 languages · ~25 shows",
+                cta: "Buy 1000 min",
+                pack: "large" as const,
+                badge: "Best value · 25% off",
+              },
+            ].map((plan) => (
+              <Card
+                key={plan.name}
+                className={`relative flex flex-col p-6 ${plan.pack === "large" ? "border-accent" : ""}`}
+              >
+                {plan.badge && (
+                  <span className="absolute right-4 top-4 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent">
+                    {plan.badge}
+                  </span>
+                )}
+                <h3 className="font-semibold">{plan.name}</h3>
+                <p className="mt-4 text-4xl font-semibold gradient-text">
+                  {plan.price}
+                </p>
+                <p className="mt-5 text-xl font-semibold">{plan.minutes}</p>
+                <p className="mt-1 text-sm text-ink-muted">{plan.unit}</p>
+                <p className="mb-6 mt-5 text-sm text-ink-muted">
+                  {plan.features}
+                </p>
+                <Button
+                  className="mt-auto w-full"
+                  onClick={
+                    plan.pack ? () => paidAction(plan.pack) : primaryAction
+                  }
+                >
+                  {plan.cta}
+                </Button>
+              </Card>
+            ))}
+          </div>
+          <div className="mt-7 rounded-full border border-border bg-surface px-4 py-2 text-center text-sm text-ink-muted">
+            No card for free · one-time payment · no auto-renew
+          </div>
         </div>
       </section>
       <footer className="bg-[#14181F] px-5 py-20 text-white">

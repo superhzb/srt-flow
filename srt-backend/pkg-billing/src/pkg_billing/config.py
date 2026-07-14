@@ -38,6 +38,8 @@ class BillingConfig:
     free_tier_monthly_limit: int
     stripe_secret: str | None = None
     stripe_price_id: str | None = None
+    stripe_small_price_id: str | None = None
+    stripe_large_price_id: str | None = None
     app_base_url: str | None = None
 
 
@@ -48,9 +50,11 @@ class BillingSettings(BaseSettings):
     billing_payment_link: str | None = None
     billing_ref_secret: str | None = None
     stripe_webhook_secret: str | None = None
-    free_tier_monthly_limit: int = 10
+    free_tier_monthly_limit: int = 20
     stripe_secret: str | None = None
     stripe_price_id: str | None = None
+    stripe_small_price_id: str | None = None
+    stripe_large_price_id: str | None = None
     app_base_url: str | None = None
 
     @field_validator(
@@ -59,6 +63,8 @@ class BillingSettings(BaseSettings):
         "stripe_webhook_secret",
         "stripe_secret",
         "stripe_price_id",
+        "stripe_small_price_id",
+        "stripe_large_price_id",
         "app_base_url",
         mode="before",
     )
@@ -71,7 +77,7 @@ class BillingSettings(BaseSettings):
     @field_validator("free_tier_monthly_limit", mode="before")
     @classmethod
     def _empty_int_to_default(cls, value: object) -> object:
-        return 10 if value in ("", None) else value
+        return 20 if value in ("", None) else value
 
 
 @lru_cache(maxsize=1)
@@ -98,18 +104,27 @@ def get_config() -> BillingConfig:
 
     stripe_secret = settings.stripe_secret
     stripe_price_id = settings.stripe_price_id
+    stripe_small_price_id = settings.stripe_small_price_id or stripe_price_id
+    stripe_large_price_id = settings.stripe_large_price_id
     app_base_url = settings.app_base_url
     checkout_fields = {
         "STRIPE_SECRET": stripe_secret,
-        "STRIPE_PRICE_ID": stripe_price_id,
+        "STRIPE_SMALL_PRICE_ID": stripe_small_price_id,
+        "STRIPE_LARGE_PRICE_ID": stripe_large_price_id,
         "APP_BASE_URL": app_base_url,
     }
     configured = [name for name, value in checkout_fields.items() if value is not None]
     if configured and len(configured) != len(checkout_fields):
-        raise RuntimeError("STRIPE_SECRET, STRIPE_PRICE_ID, and APP_BASE_URL must be set together")
+        raise RuntimeError(
+            "STRIPE_SECRET, STRIPE_SMALL_PRICE_ID, STRIPE_LARGE_PRICE_ID, "
+            "and APP_BASE_URL must be set together"
+        )
 
     has_checkout_trio = (
-        stripe_secret is not None and stripe_price_id is not None and app_base_url is not None
+        stripe_secret is not None
+        and stripe_small_price_id is not None
+        and stripe_large_price_id is not None
+        and app_base_url is not None
     )
     if has_checkout_trio:
         assert stripe_secret is not None and app_base_url is not None
@@ -134,6 +149,8 @@ def get_config() -> BillingConfig:
         free_tier_monthly_limit=settings.free_tier_monthly_limit,
         stripe_secret=stripe_secret,
         stripe_price_id=stripe_price_id,
+        stripe_small_price_id=stripe_small_price_id,
+        stripe_large_price_id=stripe_large_price_id,
         app_base_url=app_base_url,
     )
 

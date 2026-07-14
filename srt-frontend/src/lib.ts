@@ -47,10 +47,7 @@ const TZ_TO_LANG: Record<string, LangCode> = {
 function matchLang(tag: string): LangCode | null {
   const lower = tag.toLowerCase();
   // Traditional Chinese: script or region markers.
-  if (
-    lower.startsWith("zh") &&
-    /(^|-)(hant|tw|hk|mo)(-|$)/.test(lower)
-  ) {
+  if (lower.startsWith("zh") && /(^|-)(hant|tw|hk|mo)(-|$)/.test(lower)) {
     return "zh-TW";
   }
   if (lower.startsWith("zh")) return "zh";
@@ -70,7 +67,7 @@ function matchLang(tag: string): LangCode | null {
  */
 export function detectTargetLang(
   langs: readonly string[] = typeof navigator !== "undefined"
-    ? navigator.languages ?? [navigator.language]
+    ? (navigator.languages ?? [navigator.language])
     : [],
   timeZone: string = typeof Intl !== "undefined"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -88,7 +85,8 @@ export function detectTargetLang(
       if (region && REGION_TO_LANG[region]) return REGION_TO_LANG[region];
     }
   }
-  if (sawEnglish && timeZone && TZ_TO_LANG[timeZone]) return TZ_TO_LANG[timeZone];
+  if (sawEnglish && timeZone && TZ_TO_LANG[timeZone])
+    return TZ_TO_LANG[timeZone];
   return DEFAULT_TARGET;
 }
 
