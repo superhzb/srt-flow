@@ -1,18 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 
 import {
   errMessage,
+  getBillingBalance,
   getLanguages,
   getWorkers,
+  type BillingBalance,
   type LanguageInfo,
   type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
 import { ErrorBanner, LanguagePill } from "./components.tsx";
-import { langMeta } from "./languages.ts";
-import { Select } from "./ui.tsx";
+import { DEMO_LANGUAGES } from "./demoFixtures.ts";
+import {
+  billedCreditMinutes,
+  formatDuration,
+  sourceCreditMinutes,
+  sourceDurationMs,
+} from "./sourceMetrics.ts";
+import { Button, SectionHeader, Select } from "./ui.tsx";
 
 const MAX_TARGETS = 3;
+const DEFAULT_WORKER_ID = "cloud";
 
 export interface FileEntry {
   id: string;
@@ -30,8 +39,12 @@ interface Props {
   onSourceChange: (id: string, sourceLang: string) => void;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
-  onProcess: (workerId: string, targets: string[]) => void;
+  onProcess: () => void;
   onBack: () => void;
+  guest?: boolean;
+  targets: string[];
+  onTargetsChange: (targets: string[]) => void;
+  translateButtonRef?: Ref<HTMLButtonElement>;
   readOnly?: boolean;
 }
 
@@ -42,24 +55,54 @@ export function ConfigureScreen({
   onRetry,
   onProcess,
   onBack,
+  guest = false,
+  targets: targetValues,
+  onTargetsChange,
+  translateButtonRef,
   readOnly = false,
 }: Props) {
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
-  const [workerId, setWorkerId] = useState("");
-  const [languages, setLanguages] = useState<LanguageInfo[]>([]);
-  const [targets, setTargets] = useState<Set<string>>(new Set());
+  const [languages, setLanguages] = useState<LanguageInfo[]>(
+    guest ? DEMO_LANGUAGES : [],
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [selectionMessage, setSelectionMessage] = useState<string | null>(null);
+  const [balance, setBalance] = useState<BillingBalance | null | undefined>(
+    guest ? null : undefined,
+  );
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (guest) {
+      setBalance(null);
+      setBalanceError(null);
+      return;
+    }
+    let cancelled = false;
+    setBalance(undefined);
+    setBalanceError(null);
+    getBillingBalance()
+      .then((value) => {
+        if (!cancelled) setBalance(value);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setBalance(null);
+          setBalanceError(errMessage(error, "failed to load credit balance"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [guest]);
+
+  useEffect(() => {
+    if (guest) return;
     let cancelled = false;
     getWorkers()
       .then((items) => {
         if (cancelled) return;
         setWorkers(items);
-        const first = items.find((item) => item.healthy) ?? items[0];
-        if (first) setWorkerId(first.id);
       })
       .catch((error: unknown) => {
         if (!cancelled)
@@ -68,14 +111,16 @@ export function ConfigureScreen({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [guest]);
 
   useEffect(() => {
-    if (!workerId) return;
+    if (guest) {
+      setLanguages(DEMO_LANGUAGES);
+      setLoadError(null);
+      return;
+    }
     let cancelled = false;
-    setLanguages([]);
-    setTargets(new Set());
-    getLanguages(workerId)
+    getLanguages(DEFAULT_WORKER_ID)
       .then((items) => {
         if (!cancelled) setLanguages(items);
       })
@@ -86,7 +131,9 @@ export function ConfigureScreen({
     return () => {
       cancelled = true;
     };
-  }, [workerId]);
+  }, [guest]);
+
+  const targets = new Set(targetValues);
 
   const parsingCount = entries.filter(
     (entry) => entry.status === "parsing",
@@ -104,37 +151,44 @@ export function ConfigureScreen({
       targets.size > 0 &&
       ![...targets].some((target) => target !== entry.sourceLang),
   ).length;
-  const worker = workers.find((item) => item.id === workerId);
+  const worker = workers.find((item) => item.id === DEFAULT_WORKER_ID);
+  // Billed = source minutes × target languages per file (option A pricing).
+  // Drop the source language so the count matches the backend's dedup.
+  const creditMinutes = processable.reduce((total, entry) => {
+    const langs = [...targets].filter(
+      (target) => target !== entry.sourceLang,
+    ).length;
+    return total + billedCreditMinutes(entry.prepare!.cues, langs);
+  }, 0);
+  const quotaExceeded = Boolean(
+    balance && creditMinutes > balance.available_minutes,
+  );
+  const creditUnavailable = !guest && !balance;
   const disabled =
     parsingCount > 0 ||
     processable.length === 0 ||
     targets.size === 0 ||
-    !workerId ||
-    (worker !== undefined && !worker.healthy);
+    creditUnavailable ||
+    quotaExceeded ||
+    (!guest && !worker?.healthy);
 
   function toggleTarget(code: string) {
     if (readOnly) return;
-    setTargets((previous) => {
-      const next = new Set(previous);
+    {
+      const next = new Set(targets);
       if (next.has(code)) {
         next.delete(code);
         setSelectionMessage(null);
       } else if (next.size >= MAX_TARGETS) {
         setSelectionMessage(`Choose up to ${MAX_TARGETS} target languages.`);
-        return previous;
+        return;
       } else {
         next.add(code);
         setSelectionMessage(null);
       }
-      return next;
-    });
+      onTargetsChange([...next]);
+    }
   }
-
-  const visibleLanguages = languages.filter((language) =>
-    `${language.name} ${langMeta(language.code).native} ${language.code}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
 
   const sourceCount = new Set(
     entries.map((entry) => entry.sourceLang).filter(Boolean),
@@ -148,19 +202,25 @@ export function ConfigureScreen({
 
   return (
     <section className="space-y-7 rise">
+      <SectionHeader
+        index="Step 2 / 3"
+        title="Choose languages"
+        detail="Review the detected source and select up to three targets."
+      />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="font-mono text-[11px] uppercase tracking-[.14em] text-faint">
           {entries.length} {entries.length === 1 ? "file" : "files"} ·{" "}
           {sourceCount} source {sourceCount === 1 ? "language" : "languages"}{" "}
           detected
         </p>
-        <button
+        <Button
           type="button"
           onClick={onBack}
-          className="font-mono text-[11px] text-faint underline"
+          variant="danger"
+          className="px-3 py-1.5"
         >
-          clear all
-        </button>
+          Clear all files
+        </Button>
       </div>
 
       {loadError && <ErrorBanner>{loadError}</ErrorBanner>}
@@ -194,8 +254,32 @@ export function ConfigureScreen({
                     )}
                     {entry.prepare && (
                       <p className="text-xs text-faint">
-                        {entry.prepare.count} cues ·{" "}
-                        {entry.sourceLang ?? "unknown"} source
+                        {entry.prepare.count} lines ·{" "}
+                        {formatDuration(sourceDurationMs(entry.prepare.cues))}{" "}
+                        duration ·{" "}
+                        {effectiveTargets.length > 0 ? (
+                          <>
+                            {sourceCreditMinutes(entry.prepare.cues)} min ×{" "}
+                            {effectiveTargets.length}{" "}
+                            {effectiveTargets.length === 1
+                              ? "language"
+                              : "languages"}{" "}
+                            ={" "}
+                            {billedCreditMinutes(
+                              entry.prepare.cues,
+                              effectiveTargets.length,
+                            )}{" "}
+                            credit minutes
+                          </>
+                        ) : (
+                          <>
+                            {sourceCreditMinutes(entry.prepare.cues)} credit{" "}
+                            {sourceCreditMinutes(entry.prepare.cues) === 1
+                              ? "minute"
+                              : "minutes"}
+                            /language
+                          </>
+                        )}
                       </p>
                     )}
                     {noEffectiveTarget && (
@@ -253,52 +337,23 @@ export function ConfigureScreen({
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Choose target languages</h2>
-            <p className="mt-1 text-sm text-ink-muted">
-              Select up to {MAX_TARGETS} languages for every uploaded file.
-            </p>
-          </div>
-          <label className="min-w-56 text-xs font-medium text-ink-muted">
-            Translation worker
-            <Select
-              value={workerId}
-              disabled={readOnly}
-              onChange={(event) => setWorkerId(event.target.value)}
-              className="mt-1 text-sm"
-            >
-              {workers.length === 0 && <option value="">loading…</option>}
-              {workers.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label} {item.healthy ? "" : "(unreachable)"}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-ink-muted">
-            <b className="text-accent-deep">{targets.size}</b> of {MAX_TARGETS}{" "}
-            selected
+        <div>
+          <h2 className="text-lg font-semibold">Choose target languages</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            Select up to {MAX_TARGETS} languages for every uploaded file.
           </p>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search languages…"
-            aria-label="Search languages"
-            disabled={readOnly}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm sm:w-64"
-          />
         </div>
+        <p className="mt-5 text-sm text-ink-muted">
+          <b className="text-accent-deep">{targets.size}</b> of {MAX_TARGETS}{" "}
+          selected
+        </p>
         {selectionMessage && (
           <p role="status" className="mt-2 text-sm text-amber-700">
             {selectionMessage}
           </p>
         )}
         <div className="mt-4 flex max-h-64 flex-wrap gap-2 overflow-auto">
-          {visibleLanguages.map((language) => {
+          {languages.map((language) => {
             const checked = targets.has(language.code);
             const limitReached = targets.size >= MAX_TARGETS && !checked;
             return (
@@ -316,11 +371,28 @@ export function ConfigureScreen({
         </div>
       </div>
 
-      <div className="flex justify-center pt-1">
+      {balanceError && <ErrorBanner>{balanceError}</ErrorBanner>}
+      {quotaExceeded && balance && (
+        <ErrorBanner>
+          This batch needs {creditMinutes} credit minutes, but only{" "}
+          {balance.available_minutes} are available. Remove a file or add credit
+          before translating.
+        </ErrorBanner>
+      )}
+
+      <div className="rounded-2xl border border-border bg-surface p-5 text-center shadow-sm sm:p-6">
+        {!guest && balance && (
+          <p className="mb-3 text-sm text-ink-muted">
+            This batch uses <b className="text-ink">{creditMinutes}</b> of{" "}
+            <b className="text-ink">{balance.available_minutes}</b> available
+            credit minutes.
+          </p>
+        )}
         <button
+          ref={translateButtonRef}
           type="button"
           disabled={disabled || readOnly}
-          onClick={() => onProcess(workerId, [...targets])}
+          onClick={onProcess}
           className="inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] disabled:cursor-not-allowed disabled:opacity-45"
         >
           {readOnly

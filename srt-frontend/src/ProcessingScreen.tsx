@@ -1,22 +1,45 @@
 import { useEffect, useRef } from "react";
-import { pollJob, type JobStatusResponse, type TargetProgress } from "./api.ts";
+import { pollJob, type JobStatusResponse } from "./api.ts";
 import { usePoll } from "./hooks.ts";
+import { langMeta } from "./languages.ts";
 import { Card, MonoLabel, SectionHeader } from "./ui.tsx";
 
 export function ProcessingScreen({
   jobs,
   onJobTerminal,
+  complete,
+  hasResults,
+  onViewResults,
+  onStartOver,
 }: {
   jobs: { jobId: string; name: string }[];
   onJobTerminal: (jobId: string, result: JobStatusResponse) => void;
+  complete: boolean;
+  hasResults: boolean;
+  onViewResults: () => void;
+  onStartOver: () => void;
 }) {
+  const completionRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!complete) return;
+    requestAnimationFrame(() =>
+      completionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      }),
+    );
+  }, [complete]);
   return (
     <section className="mt-6 space-y-5 rise">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeader
-          index="Step 3 / 4"
-          title="Translations are flowing"
-          detail="You can leave—your jobs keep running safely in the background."
+          index="Step 3 / 3"
+          title={complete ? "Translation complete" : "Translations are flowing"}
+          detail={
+            complete
+              ? "Open History to review, arrange, and download the result."
+              : "You can leave—your jobs keep running safely in the background."
+          }
         />
         <MonoLabel>{jobs.length} jobs queued</MonoLabel>
       </div>
@@ -25,6 +48,19 @@ export function ProcessingScreen({
           <JobProgress key={j.jobId} {...j} onTerminal={onJobTerminal} />
         ))}
       </div>
+      {complete && (
+        <div ref={completionRef} className="flex justify-center rise">
+          <button
+            type="button"
+            onClick={hasResults ? onViewResults : onStartOver}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)]"
+          >
+            {hasResults
+              ? "View results in History →"
+              : "Start a new translation"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -50,6 +86,7 @@ function JobProgress({
     }
   }, [jobId, result, terminal, onTerminal]);
   const pct = Math.round((result?.progress ?? 0) * 100);
+  const flowing = !terminal;
   return (
     <Card className="p-4">
       <div className="flex justify-between gap-3">
@@ -74,41 +111,33 @@ function JobProgress({
           style={{ width: `${pct}%` }}
         />
       </div>
-      {result?.targets && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {result.targets.map((t) => (
-            <TargetRow key={t.lang} target={t} />
+      {result?.targets && result.targets.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+          <span
+            className={`${flowing ? "language-flow" : ""} inline-flex items-center gap-1 rounded-full bg-surface-subtle px-2.5 py-1`}
+          >
+            <span aria-hidden="true">{langMeta(result.src_lang).flag}</span>
+            <span>{langMeta(result.src_lang).en}</span>
+            <span className="font-mono text-[10px] uppercase">source</span>
+          </span>
+          <span aria-hidden="true">→</span>
+          {result.targets.map((target, index) => (
+            <span
+              key={target.lang}
+              className={`${flowing ? "language-flow" : ""} inline-flex items-center gap-1 rounded-full bg-surface-subtle px-2.5 py-1`}
+              style={{ animationDelay: `${index * 180}ms` }}
+            >
+              <span aria-hidden="true">{langMeta(target.lang).flag}</span>
+              <span>{langMeta(target.lang).en}</span>
+              <span className="font-mono text-[10px] uppercase">
+                {target.status}
+              </span>
+            </span>
           ))}
         </div>
       )}
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
     </Card>
-  );
-}
-function TargetRow({ target }: { target: TargetProgress }) {
-  const pct = Math.round(target.progress * 100);
-  return (
-    <div className="rounded-lg bg-surface-subtle px-3 py-2">
-      <div className="flex items-center gap-2">
-        <span
-          className={`h-2 w-2 rounded-full ${target.status === "done" ? "bg-ok" : target.status === "running" ? "bg-accent animate-pulse" : "bg-faint"}`}
-        />
-        <span className="font-mono text-xs uppercase">{target.lang}</span>
-        <span className="ml-auto text-xs text-ink-muted">
-          {target.status === "done"
-            ? "done"
-            : target.status === "running"
-              ? `${pct}%`
-              : "queued"}
-        </span>
-      </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-inset">
-        <div
-          className="flow-progress h-full rounded-full transition-[width]"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
   );
 }
 function formatEta(job?: JobStatusResponse | null) {

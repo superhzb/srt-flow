@@ -11,10 +11,15 @@ import { ErrorBanner, RefreshButton } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
+import { listDemoEntries, type DemoHistoryEntry } from "./clientStorage.ts";
 
-const MOCK_QUOTA = { used: 16, limit: 20 };
+const MOCK_QUOTA = { used: 16, limit: 30 };
 
-export function JobsScreen() {
+export function JobsScreen({ guest = false }: { guest?: boolean }) {
+  return guest ? <GuestHistory /> : <RealJobsScreen />;
+}
+
+function RealJobsScreen() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -119,6 +124,96 @@ export function JobsScreen() {
           ) : (
             <div className="flex min-h-72 items-center justify-center rounded-2xl border border-border bg-surface p-8 text-center text-sm text-ink-muted">
               Select a job to review and download it.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GuestHistory() {
+  const [entries, setEntries] = useState<DemoHistoryEntry[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () => {
+    setError(null);
+    listDemoEntries()
+      .then((items) => {
+        setEntries(items);
+        setSelectedId((current) =>
+          current && items.some((item) => item.id === current)
+            ? current
+            : (items[0]?.id ?? null),
+        );
+      })
+      .catch((reason: unknown) =>
+        setError(errMessage(reason, "failed to load demo history")),
+      );
+  };
+  useEffect(refresh, []);
+  const selected = entries?.find((entry) => entry.id === selectedId);
+  return (
+    <section className="rise">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="mb-2 inline-flex rounded-full bg-accent-soft px-3 py-1 font-mono text-xs font-semibold text-accent-deep">
+            Demo History · local only
+          </div>
+          <h1 className="text-3xl font-bold tracking-[-.03em]">History</h1>
+          <p className="mt-2 text-[15px] text-ink-muted">
+            Signed-out History contains only demo translations stored in this
+            browser for 30 minutes.
+          </p>
+        </div>
+        <RefreshButton onClick={refresh} />
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto">
+            {entries === null && (
+              <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                Loading…
+              </p>
+            )}
+            {entries?.length === 0 && (
+              <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                No demo translations yet.
+              </p>
+            )}
+            {entries?.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => setSelectedId(entry.id)}
+                className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left ${selectedId === entry.id ? "border-l-accent bg-accent-soft/50" : "border-l-transparent bg-surface"}`}
+              >
+                <span className="block truncate text-[13.5px] font-semibold">
+                  {entry.filename}
+                </span>
+                <span className="mt-0.5 block font-mono text-[10.5px] text-faint">
+                  Demo translation ·{" "}
+                  {formatJobDate(new Date(entry.createdAt).toISOString())}
+                </span>
+              </button>
+            ))}
+          </div>
+        </aside>
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          {selected ? (
+            <StackedOutput
+              demoCues={selected.cuesByLanguage}
+              sourceLang={selected.sourceLang}
+              targetLangs={selected.targetLangs}
+              historyHeader={{
+                filename: selected.filename,
+                meta: `Demo translation · ${formatJobDate(new Date(selected.createdAt).toISOString())}`,
+              }}
+            />
+          ) : (
+            <div className="flex min-h-72 items-center justify-center p-8 text-center text-sm text-ink-muted">
+              Run the sample demo to create a local History entry.
             </div>
           )}
         </div>

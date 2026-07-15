@@ -121,6 +121,9 @@ select:focus-visible {
 .rise {
   animation: rise 0.45s ease-out both;
 }
+.language-flow {
+  animation: languageFlow 1.8s ease-in-out infinite;
+}
 @keyframes flowShift {
   50% {
     transform: translateX(4px);
@@ -141,6 +144,12 @@ select:focus-visible {
   50% {
     opacity: 0.35;
     transform: scale(0.85);
+  }
+}
+@keyframes languageFlow {
+  50% {
+    opacity: 0.45;
+    transform: translateX(3px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,9 +1,24 @@
+import { useEffect, useState } from "react";
+
 import { googleLoginUrl, startCheckout, type CreditPack } from "./api.ts";
 import { LanguagePill } from "./components.tsx";
-import { DEMO_LINE, LANG_LABEL } from "./demoLine.ts";
-import { detectTargetLang } from "./lib.ts";
-import { Button, Card, FlowLogo, MonoLabel } from "./ui.tsx";
+import {
+  DEMO_LINE,
+  LANG_LABEL,
+  SUPPORTED_LANGS,
+  type LangCode,
+} from "./demoLine.ts";
+import { Button, Card, MonoLabel } from "./ui.tsx";
 import cockpit from "./assets/cockpit.webp";
+
+const LANDING_DEMO_LANGS: readonly LangCode[] = [
+  "zh",
+  "fr",
+  ...SUPPORTED_LANGS.filter(
+    (code) => code !== "en" && code !== "zh" && code !== "fr",
+  ),
+];
+const LANDING_DEMO_INTERVAL_MS = 2400;
 
 const login = () => {
   window.location.href = googleLoginUrl();
@@ -12,12 +27,25 @@ const login = () => {
 export function LandingScreen({
   signedIn = false,
   onOpenApp,
+  onOpenStudio,
 }: {
   signedIn?: boolean;
   onOpenApp?: () => void;
+  onOpenStudio?: () => void;
 } = {}) {
-  const target = detectTargetLang();
+  const [demoLanguageIndex, setDemoLanguageIndex] = useState(0);
+  const demoLanguage = LANDING_DEMO_LANGS[demoLanguageIndex];
   const primaryAction = signedIn && onOpenApp ? onOpenApp : login;
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    const interval = window.setInterval(() => {
+      setDemoLanguageIndex(
+        (current) => (current + 1) % LANDING_DEMO_LANGS.length,
+      );
+    }, LANDING_DEMO_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
   const paidAction = (pack: CreditPack) => {
     if (!signedIn) return login();
     void startCheckout(pack).then(({ url }) => {
@@ -25,52 +53,11 @@ export function LandingScreen({
     });
   };
   return (
-    <main className="min-h-screen bg-surface text-ink">
-      <nav className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-4">
-          <FlowLogo />
-          <div className="hidden items-center gap-7 text-sm text-ink-muted md:flex">
-            <a
-              href="#howitworks"
-              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
-            >
-              How it works
-            </a>
-            <a
-              href="#languages"
-              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
-            >
-              Languages
-            </a>
-            <a
-              href="#pricing"
-              className="underline-offset-4 transition-colors hover:text-ink hover:underline"
-            >
-              Pricing
-            </a>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={primaryAction}
-              className="hidden rounded-full px-3 py-1.5 text-sm font-medium text-ink-muted transition hover:bg-surface-inset hover:text-ink active:scale-95 sm:block"
-            >
-              {signedIn ? "Open app" : "Sign in"}
-            </button>
-            <button
-              type="button"
-              onClick={primaryAction}
-              className="rounded-full bg-[#14181F] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-accent-deep hover:shadow-lg active:translate-y-0 active:scale-95"
-            >
-              {signedIn ? "Workspace" : "Start free"}
-            </button>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-surface text-ink">
       <section className="mx-auto max-w-6xl px-5 pb-24 pt-16 text-center sm:pt-24">
         <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-subtle px-4 py-2 font-mono text-[11px] uppercase tracking-wide text-ink-muted">
-          <span className="pulse-dot h-2 w-2 rounded-full bg-accent" />
-          100+ languages · auto-detected source
+          <span className="pulse-dot h-2 w-2 rounded-full bg-accent" />9
+          languages · auto-detected source
         </div>
         <h1 className="mx-auto mt-7 max-w-4xl text-5xl font-semibold leading-[.98] tracking-[-.065em] sm:text-7xl">
           One subtitle in.
@@ -90,25 +77,28 @@ export function LandingScreen({
             {!signedIn && <GoogleIcon />}
             {signedIn ? "Open workspace" : "Continue with Google"}
           </button>
-          <button
-            type="button"
-            className="rounded-full border border-border bg-surface px-6 py-3.5 font-semibold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-ink/40 hover:bg-surface-inset hover:shadow-md active:translate-y-0 active:scale-95"
-          >
-            Live demo
-          </button>
+          {!signedIn && (
+            <button
+              type="button"
+              onClick={onOpenStudio ?? primaryAction}
+              className="rounded-full border border-border bg-surface px-6 py-3.5 font-semibold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-ink/40 hover:bg-surface-inset hover:shadow-md active:translate-y-0 active:scale-95"
+            >
+              Live demo
+            </button>
+          )}
         </div>
         <p className="mt-4 font-mono text-[11px] text-faint">
-          Free tier · no card · 20 min of subtitles / month
+          Free tier · no card · 30 min of subtitles / month
         </p>
         <div className="relative mt-20 grid gap-12 text-left md:grid-cols-2 md:gap-8">
           <VideoDemo>
             <p>{DEMO_LINE.en}</p>
           </VideoDemo>
           <TransformationArrow />
-          <VideoDemo badge={`EN + ${LANG_LABEL[target]}`}>
-            {target !== "en" && (
-              <p className="font-normal text-[#FFE066]">{DEMO_LINE[target]}</p>
-            )}
+          <VideoDemo badge={`EN + ${LANG_LABEL[demoLanguage]}`}>
+            <p key={demoLanguage} className="rise font-normal text-[#FFE066]">
+              {DEMO_LINE[demoLanguage]}
+            </p>
             <p>{DEMO_LINE.en}</p>
           </VideoDemo>
         </div>
@@ -118,8 +108,15 @@ export function LandingScreen({
         className="scroll-mt-24 border-y border-border bg-surface-subtle px-5 py-24"
       >
         <div className="mx-auto max-w-6xl">
-          <div className="text-center">
-            <MonoLabel>Three steps · zero friction</MonoLabel>
+          <div>
+            <MonoLabel>How it works</MonoLabel>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight">
+              Three steps. Zero friction.
+            </h2>
+            <p className="mt-3 max-w-xl text-ink-muted">
+              Upload once, choose your audience, and download a ready-to-use
+              bilingual subtitle file.
+            </p>
           </div>
           <div className="mt-9 grid gap-5 md:grid-cols-3">
             {[
@@ -131,7 +128,7 @@ export function LandingScreen({
               [
                 "02",
                 "Pick languages",
-                "Search, tap, done. Choose two or two dozen — they all run in parallel.",
+                "Choose up to three target languages — they all run in parallel.",
               ],
               [
                 "03",
@@ -162,24 +159,11 @@ export function LandingScreen({
             Speak to the whole room.
           </h2>
           <p className="mt-4 max-w-xl text-ink-muted">
-            Translate into 100+ languages, from English, Français and Español to
-            中文, 日本語, 한국어 and العربية.
+            Translate between English, Español, 简体中文, 繁體中文, Français,
+            Deutsch, Português, 日本語, and 한국어.
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
-            {[
-              "en",
-              "fr",
-              "es",
-              "de",
-              "pt",
-              "zh",
-              "ja",
-              "ko",
-              "ar",
-              "hi",
-              "it",
-              "tr",
-            ].map((code) => (
+            {SUPPORTED_LANGS.map((code) => (
               <LanguagePill key={code} code={code} />
             ))}
           </div>
@@ -195,14 +179,15 @@ export function LandingScreen({
             Start free. Pay once when you need more.
           </h2>
           <p className="mt-4 text-ink-muted">
-            Buy minutes, not a subscription. Metered by source subtitle length.
+            Buy minutes, not a subscription. Metered by source length × target
+            language — one language costs its minutes, three cost 3×.
           </p>
           <div className="mt-9 grid gap-6 md:grid-cols-3">
             {[
               {
                 name: "Free",
                 price: "$0",
-                minutes: "20 min / month",
+                minutes: "30 min / month",
                 unit: "No card required",
                 features: "9 languages · real trial",
                 cta: "Start free",
@@ -230,8 +215,13 @@ export function LandingScreen({
             ].map((plan) => (
               <Card
                 key={plan.name}
-                className={`relative flex flex-col p-6 ${plan.pack === "large" ? "border-accent" : ""}`}
+                className={`relative flex flex-col p-6 ${plan.pack === "large" || (signedIn && !plan.pack) ? "border-accent" : ""}`}
               >
+                {signedIn && !plan.pack && (
+                  <span className="absolute right-4 top-4 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent-deep">
+                    Current plan
+                  </span>
+                )}
                 {plan.badge && (
                   <span className="absolute right-4 top-4 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent">
                     {plan.badge}
@@ -248,11 +238,12 @@ export function LandingScreen({
                 </p>
                 <Button
                   className="mt-auto w-full"
+                  disabled={signedIn && !plan.pack}
                   onClick={
                     plan.pack ? () => paidAction(plan.pack) : primaryAction
                   }
                 >
-                  {plan.cta}
+                  {signedIn && !plan.pack ? "Current plan" : plan.cta}
                 </Button>
               </Card>
             ))}
@@ -265,7 +256,7 @@ export function LandingScreen({
       <footer className="bg-[#14181F] px-5 py-20 text-white">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 sm:flex-row sm:items-center">
           <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
-            Your work deserves an audience in every language.
+            Learn a language from the videos you already love.
           </h2>
           <button
             type="button"
@@ -276,7 +267,7 @@ export function LandingScreen({
           </button>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }
 
@@ -300,7 +291,10 @@ function VideoDemo({
           {children}
         </div>
         {translated && (
-          <span className="absolute right-4 top-4 rounded-full bg-accent px-2.5 py-1 font-mono text-[10px] font-semibold text-white">
+          <span
+            key={badge}
+            className="rise absolute right-4 top-4 rounded-full bg-accent px-2.5 py-1 font-mono text-[10px] font-semibold text-white"
+          >
             {badge}
           </span>
         )}

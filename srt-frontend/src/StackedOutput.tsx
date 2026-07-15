@@ -19,18 +19,26 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { errMessage, fetchStackedOutput, stackedDownloadUrl } from "./api.ts";
+import {
+  errMessage,
+  fetchStackedOutput,
+  stackedDownloadUrl,
+  type Cue,
+} from "./api.ts";
+import { DEMO_DOWNLOAD_FILENAME } from "./demoFixtures.ts";
 import { langMeta } from "./languages.ts";
 import { parseStackedPreview } from "./stackedPreview.ts";
 import { Button, MonoLabel } from "./ui.tsx";
 
 export function StackedOutput({
   jobId,
+  demoCues,
   sourceLang,
   targetLangs,
   historyHeader,
 }: {
-  jobId: string;
+  jobId?: string;
+  demoCues?: Record<string, Cue[]>;
   sourceLang: string;
   targetLangs: string[];
   historyHeader?: { filename: string; meta: string };
@@ -41,6 +49,7 @@ export function StackedOutput({
     [included, setIncluded] = useState(() => new Set(all));
   const [preview, setPreview] = useState<string | null>(null),
     [error, setError] = useState<string | null>(null),
+    [downloadUrl, setDownloadUrl] = useState<string | null>(null),
     [active, setActive] = useState<string | null>(null),
     [announcement, setAnnouncement] = useState("");
   const sensors = useSensors(
@@ -58,11 +67,31 @@ export function StackedOutput({
   useEffect(() => {
     if (!request.length) {
       setPreview(null);
+      setDownloadUrl(null);
       return;
     }
+    if (demoCues) {
+      try {
+        const output = stackDemoCues(demoCues, request);
+        const url = URL.createObjectURL(
+          new Blob([output], { type: "application/x-subrip;charset=utf-8" }),
+        );
+        setPreview(output);
+        setError(null);
+        setDownloadUrl(url);
+        return () => URL.revokeObjectURL(url);
+      } catch (error) {
+        setPreview(null);
+        setDownloadUrl(null);
+        setError(errMessage(error, "unsupported demo language"));
+        return;
+      }
+    }
+    if (!jobId) return;
     let live = true;
     setPreview(null);
     setError(null);
+    setDownloadUrl(stackedDownloadUrl(jobId, request));
     fetchStackedOutput(jobId, request)
       .then((x) => live && setPreview(x))
       .catch(
@@ -72,7 +101,7 @@ export function StackedOutput({
     return () => {
       live = false;
     };
-  }, [jobId, orderKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobId, demoCues, orderKey]); // eslint-disable-line react-hooks/exhaustive-deps
   function drop(e: DragEndEvent) {
     setActive(null);
     if (!e.over || e.active.id === e.over.id) return;
@@ -110,8 +139,11 @@ export function StackedOutput({
               {historyHeader.meta} · {request.length} languages stacked
             </p>
           </div>
-          {request.length ? (
-            <a href={stackedDownloadUrl(jobId, request)} download>
+          {request.length && downloadUrl ? (
+            <a
+              href={downloadUrl}
+              download={demoCues ? DEMO_DOWNLOAD_FILENAME : true}
+            >
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-5 py-[11px] text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-14px_rgba(0,167,196,.7)] transition-colors hover:bg-accent-deep hover:text-white"
@@ -221,8 +253,11 @@ export function StackedOutput({
         </p>
         {!historyHeader && (
           <div className="flex items-center gap-4">
-            {request.length ? (
-              <a href={stackedDownloadUrl(jobId, request)} download>
+            {request.length && downloadUrl ? (
+              <a
+                href={downloadUrl}
+                download={demoCues ? DEMO_DOWNLOAD_FILENAME : true}
+              >
                 <Button>Download stacked SRT</Button>
               </a>
             ) : (
@@ -256,6 +291,28 @@ export function StackedOutput({
   );
 }
 
+function stackDemoCues(
+  cuesByLanguage: Record<string, Cue[]>,
+  order: string[],
+): string {
+  const first = cuesByLanguage[order[0]];
+  if (!first) throw new Error(`No demo fixture for ${order[0]}`);
+  for (const lang of order) {
+    if (!cuesByLanguage[lang]) throw new Error(`No demo fixture for ${lang}`);
+  }
+  return first
+    .map((cue, index) => {
+      const lines = order.map((lang) => {
+        const translated = cuesByLanguage[lang][index];
+        if (!translated) throw new Error(`Incomplete demo fixture for ${lang}`);
+        return translated.text;
+      });
+      return `${cue.index}\n${cue.start} --> ${cue.end}\n${lines.join("\n")}`;
+    })
+    .join("\n\n")
+    .concat("\n");
+}
+
 function ReviewPreview({ value, order }: { value: string; order: string[] }) {
   const cues = useMemo(() => parseStackedPreview(value), [value]);
   return (
@@ -263,7 +320,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
       {cues.map((cue, cueIndex) => (
         <article
           key={`${cue.index}-${cueIndex}`}
-          className="border-b border-border-subtle px-5 py-3.5 last:border-b-0"
+          className="border-b border-border-subtle px-5 py-3 last:border-b-0"
         >
           <header className="mb-2.5 flex items-baseline gap-3">
             <span className="w-7 shrink-0 font-mono text-[11px] text-faint/60">
@@ -273,7 +330,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
               {cue.timecode}
             </span>
           </header>
-          <div className="space-y-[7px]">
+          <div className="space-y-1">
             {order.map((lang, lineIndex) => {
               const tint = langMeta(lang).tint;
               return (
@@ -289,7 +346,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
                     {lang.toUpperCase()}
                   </span>
                   <span
-                    className="min-w-0 whitespace-pre-wrap text-[13.5px] leading-[1.5] text-[#20242e]"
+                    className="min-w-0 whitespace-pre-wrap text-[13.5px] leading-[1.4] text-[#20242e]"
                     style={{
                       fontFamily:
                         '"JetBrains Mono", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR", monospace',
