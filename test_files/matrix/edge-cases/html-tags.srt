@@ -1,0 +1,11 @@
+1
+00:00:01,000 --> 00:00:04,000
+<i>Italic emphasis here.</i>
+
+2
+00:00:04,100 --> 00:00:07,000
+<b>Bold</b> and <font color="#ffff00">colored</font> text.
+
+3
+00:00:07,100 --> 00:00:10,000
+{\an8}Top-positioned caption.

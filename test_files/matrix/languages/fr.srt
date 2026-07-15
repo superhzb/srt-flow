@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:03,500
+Bonjour. Merci d'être venu aujourd'hui.
+
+2
+00:00:03,600 --> 00:00:06,200
+Je voulais vous expliquer comment se déroule le processus.
+
+3
+00:00:06,300 --> 00:00:09,000
+Et il faut être vraiment fort pour aller jusqu'au bout.
+
+4
+00:00:09,100 --> 00:00:11,800
+Mais vous ne serez pas seul.
+
+5
+00:00:11,900 --> 00:00:14,400
+Nous serons avec vous à chaque étape.

@@ -36,12 +36,14 @@ export function StackedOutput({
   sourceLang,
   targetLangs,
   historyHeader,
+  historySidebar,
 }: {
   jobId?: string;
   demoCues?: Record<string, Cue[]>;
   sourceLang: string;
   targetLangs: string[];
   historyHeader?: { filename: string; meta: string };
+  historySidebar?: HTMLElement | null;
 }) {
   const key = [sourceLang, ...targetLangs].join("\0");
   const all = useMemo(() => [sourceLang, ...targetLangs], [key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -123,72 +125,25 @@ export function StackedOutput({
       return next;
     });
   }
-  return (
-    <section
+  const languageOrder = (
+    <div
       className={
         historyHeader
-          ? "bg-surface"
-          : "rounded-2xl border border-border bg-surface-subtle p-4 sm:p-5"
+          ? "overflow-hidden rounded-2xl border border-border bg-surface shadow-sm"
+          : ""
       }
     >
-      {historyHeader ? (
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border-subtle px-5 py-4">
-          <div className="min-w-0">
-            <h2 className="truncate font-semibold">{historyHeader.filename}</h2>
-            <p className="mt-0.5 font-mono text-[11px] text-faint">
-              {historyHeader.meta} · {request.length} languages stacked
-            </p>
-          </div>
-          {request.length && downloadUrl ? (
-            <a
-              href={downloadUrl}
-              download={demoCues ? DEMO_DOWNLOAD_FILENAME : true}
-            >
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-5 py-[11px] text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-14px_rgba(0,167,196,.7)] transition-colors hover:bg-accent-deep hover:text-white"
-              >
-                ↓ Download .srt
-              </button>
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-5 py-[11px] text-sm font-bold text-[#04252c] opacity-45"
-            >
-              ↓ Download .srt
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h4 className="font-semibold">Stacked output</h4>
-            <p className="text-xs text-ink-muted">
-              Drag languages into reading order · instant, no re-translate.
-            </p>
-          </div>
-          <MonoLabel>{request.length} layers</MonoLabel>
+      {historyHeader && (
+        <div className="border-b border-border-subtle px-5 py-4">
+          <h2 className="text-base font-semibold tracking-tight">
+            Language order
+          </h2>
+          <p className="mt-1 font-mono text-[10.5px] text-faint">
+            drag ⠿ to reorder — every line updates
+          </p>
         </div>
       )}
-      <div
-        className={
-          historyHeader
-            ? "border-b border-border-subtle bg-surface-subtle px-5 py-4"
-            : ""
-        }
-      >
-        {historyHeader && (
-          <div className="mb-3 flex flex-wrap items-baseline gap-2">
-            <h3 className="font-mono text-[11px] uppercase tracking-[.1em] text-faint">
-              Language order
-            </h3>
-            <p className="font-mono text-[10.5px] text-faint">
-              drag ⠿ to reorder — every line updates
-            </p>
-          </div>
-        )}
+      <div className={historyHeader ? "bg-surface-subtle p-5" : ""}>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -271,6 +226,62 @@ export function StackedOutput({
           </div>
         )}
       </div>
+    </div>
+  );
+  return (
+    <section
+      className={
+        historyHeader
+          ? "bg-surface"
+          : "rounded-2xl border border-border bg-surface-subtle p-4 sm:p-5"
+      }
+    >
+      {historyHeader ? (
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border-subtle px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold tracking-tight">
+              {historyHeader.filename}
+            </h2>
+            <p className="mt-1 font-mono text-[10.5px] text-faint">
+              {historyHeader.meta} · {request.length} languages
+            </p>
+          </div>
+          {request.length && downloadUrl ? (
+            <a
+              href={downloadUrl}
+              download={demoCues ? DEMO_DOWNLOAD_FILENAME : true}
+            >
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-5 py-[11px] text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-14px_rgba(0,167,196,.7)] transition-colors hover:bg-accent-deep hover:text-white"
+              >
+                ↓ Download .srt
+              </button>
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-5 py-[11px] text-sm font-bold text-[#04252c] opacity-45"
+            >
+              ↓ Download .srt
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="font-semibold">Stacked output</h4>
+            <p className="text-xs text-ink-muted">
+              Drag languages into reading order · instant, no re-translate.
+            </p>
+          </div>
+          <MonoLabel>{request.length} layers</MonoLabel>
+        </div>
+      )}
+      {historyHeader
+        ? historySidebar && createPortal(languageOrder, historySidebar)
+        : languageOrder}
       {preview &&
         (historyHeader ? (
           <ReviewPreview value={preview} order={request} />
@@ -280,7 +291,7 @@ export function StackedOutput({
           </pre>
         ))}
       {historyHeader && preview === null && (
-        <div className="px-5 py-8 text-sm text-ink-muted">
+        <div className="bg-surface-subtle px-5 py-8 text-sm text-ink-muted">
           {error ??
             (request.length
               ? "Refreshing review…"
@@ -316,11 +327,11 @@ function stackDemoCues(
 function ReviewPreview({ value, order }: { value: string; order: string[] }) {
   const cues = useMemo(() => parseStackedPreview(value), [value]);
   return (
-    <div className="flow-scroll max-h-[430px] overflow-y-auto bg-surface py-1">
+    <div className="flow-scroll max-h-[620px] overflow-y-auto bg-surface-subtle py-1">
       {cues.map((cue, cueIndex) => (
         <article
           key={`${cue.index}-${cueIndex}`}
-          className="border-b border-border-subtle px-5 py-3 last:border-b-0"
+          className="border-b border-border-subtle px-5 py-3"
         >
           <header className="mb-2.5 flex items-baseline gap-3">
             <span className="w-7 shrink-0 font-mono text-[11px] text-faint/60">

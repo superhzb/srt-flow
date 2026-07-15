@@ -190,9 +190,10 @@ export function ConfigureScreen({
     }
   }
 
-  const sourceCount = new Set(
+  const sourceLanguages = new Set(
     entries.map((entry) => entry.sourceLang).filter(Boolean),
-  ).size;
+  );
+  const sourceCount = sourceLanguages.size;
   const totalTracks = entries.reduce(
     (count, entry) =>
       count +
@@ -356,6 +357,8 @@ export function ConfigureScreen({
           {languages.map((language) => {
             const checked = targets.has(language.code);
             const limitReached = targets.size >= MAX_TARGETS && !checked;
+            const isOnlySource =
+              sourceLanguages.size === 1 && sourceLanguages.has(language.code);
             return (
               <LanguagePill
                 key={language.code}
@@ -363,11 +366,33 @@ export function ConfigureScreen({
                 selected={checked}
                 showCheck
                 interactive
-                disabled={readOnly || limitReached}
+                disabled={readOnly || limitReached || isOnlySource}
                 onClick={() => toggleTarget(language.code)}
               />
             );
           })}
+        </div>
+        <div className="mt-6 border-t border-border-subtle pt-5 text-center">
+          {!guest && balance && (
+            <p className="mb-3 text-sm text-ink-muted">
+              This batch uses <b className="text-ink">{creditMinutes}</b> of{" "}
+              <b className="text-ink">{balance.available_minutes}</b> available
+              credit minutes.
+            </p>
+          )}
+          <button
+            ref={translateButtonRef}
+            type="button"
+            disabled={disabled || readOnly}
+            onClick={onProcess}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {readOnly
+              ? "Run settings locked"
+              : parsingCount > 0
+                ? `Waiting for ${parsingCount} files to parse…`
+                : `⚡ Translate ${totalTracks} subtitle ${totalTracks === 1 ? "track" : "tracks"}${skippedCount ? ` · ${skippedCount} skipped` : ""} →`}
+          </button>
         </div>
       </div>
 
@@ -379,29 +404,6 @@ export function ConfigureScreen({
           before translating.
         </ErrorBanner>
       )}
-
-      <div className="rounded-2xl border border-border bg-surface p-5 text-center shadow-sm sm:p-6">
-        {!guest && balance && (
-          <p className="mb-3 text-sm text-ink-muted">
-            This batch uses <b className="text-ink">{creditMinutes}</b> of{" "}
-            <b className="text-ink">{balance.available_minutes}</b> available
-            credit minutes.
-          </p>
-        )}
-        <button
-          ref={translateButtonRef}
-          type="button"
-          disabled={disabled || readOnly}
-          onClick={onProcess}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          {readOnly
-            ? "Run settings locked"
-            : parsingCount > 0
-              ? `Waiting for ${parsingCount} files to parse…`
-              : `⚡ Translate ${totalTracks} subtitle ${totalTracks === 1 ? "track" : "tracks"}${skippedCount ? ` · ${skippedCount} skipped` : ""} →`}
-        </button>
-      </div>
     </section>
   );
 }

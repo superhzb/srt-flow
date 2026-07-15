@@ -1,0 +1,2 @@
+1
+Just text, no timing line.

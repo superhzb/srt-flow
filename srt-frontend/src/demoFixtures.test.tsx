@@ -75,7 +75,7 @@ describe("requested navigation and demo flow", () => {
       "EN + KO",
     ]) {
       expect(screen.getByText(badge)).toBeInTheDocument();
-      act(() => vi.advanceTimersByTime(2400));
+      act(() => vi.advanceTimersByTime(4000));
     }
     expect(screen.getByText("EN + 简中")).toBeInTheDocument();
   });

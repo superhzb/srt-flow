@@ -1,0 +1,7 @@
+1
+0:00:01,000 --> 0:00:03,000
+Timestamp uses a single-digit hour.
+
+2
+0:00:03,100 --> 0:00:05,000
+Still valid per the parser.

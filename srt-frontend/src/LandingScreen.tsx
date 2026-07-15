@@ -18,7 +18,7 @@ const LANDING_DEMO_LANGS: readonly LangCode[] = [
     (code) => code !== "en" && code !== "zh" && code !== "fr",
   ),
 ];
-const LANDING_DEMO_INTERVAL_MS = 2400;
+const LANDING_DEMO_INTERVAL_MS = 4000;
 
 const login = () => {
   window.location.href = googleLoginUrl();

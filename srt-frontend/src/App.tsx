@@ -168,20 +168,6 @@ export default function App() {
     );
   }, [workflow.stage]);
 
-  useEffect(() => {
-    if (
-      workflow.stage !== "configure" ||
-      workflow.entries.some((entry) => entry.status === "parsing")
-    )
-      return;
-    requestAnimationFrame(() =>
-      translateButtonRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      }),
-    );
-  }, [workflow.entries, workflow.stage]);
-
   function parseEntry(entry: FileEntry) {
     const generation = entry.generation;
     prepareSrt(entry.file)
@@ -822,11 +808,23 @@ export function UploadFlow({
   }
   return (
     <section className="rise">
-      <SectionHeader
-        index="Step 1 / 3"
-        title="Upload subtitles"
-        detail="Drop your subtitle files, choose target languages, and translate them all at once."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader
+          index="Step 1 / 3"
+          title="Upload subtitles"
+          detail="Drop your subtitle files, choose target languages, and translate them all at once."
+        />
+        {showSample && (
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={onLoadSample}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] transition-colors hover:bg-accent-deep hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Load sample SRT
+          </button>
+        )}
+      </div>
       <div
         role="button"
         tabIndex={readOnly ? -1 : 0}
@@ -875,18 +873,6 @@ export function UploadFlow({
           }}
         />
       </div>
-      {showSample && (
-        <div className="mt-4 flex justify-center">
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={readOnly}
-            onClick={onLoadSample}
-          >
-            Load sample SRT
-          </Button>
-        </div>
-      )}
       {message && <ErrorBanner>{message}</ErrorBanner>}
     </section>
   );

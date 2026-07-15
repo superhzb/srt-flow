@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:03,500
+Guten Morgen. Danke, dass Sie heute gekommen sind.
+
+2
+00:00:03,600 --> 00:00:06,200
+Ich wollte Ihnen erklären, wie der Ablauf funktioniert.
+
+3
+00:00:06,300 --> 00:00:09,000
+Man braucht wirklich viel Stärke, um es bis zum Ende zu schaffen.
+
+4
+00:00:09,100 --> 00:00:11,800
+Aber Sie müssen das nicht allein tun.
+
+5
+00:00:11,900 --> 00:00:14,400
+Wir begleiten Sie bei jedem Schritt.

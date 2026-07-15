@@ -7,7 +7,7 @@ import {
   type JobStatus,
   type JobSummary,
 } from "./api.ts";
-import { ErrorBanner, RefreshButton } from "./components.tsx";
+import { ErrorBanner } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
@@ -24,19 +24,14 @@ function RealJobsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [languageOrderHost, setLanguageOrderHost] =
+    useState<HTMLDivElement | null>(null);
   const poll = usePoll(
     listJobs,
     (items) =>
       items.every((job) => job.status === "done" || job.status === "failed"),
     { immediateFirst: true },
   );
-
-  function refresh() {
-    setError(null);
-    listJobs()
-      .then(setJobs)
-      .catch((e: unknown) => setError(errMessage(e, "failed to load jobs")));
-  }
 
   useEffect(() => {
     if (poll.result) setJobs(poll.result);
@@ -61,66 +56,67 @@ function RealJobsScreen() {
 
   return (
     <section className="rise">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-[-.03em]">History</h1>
-          <p className="mt-2 text-[15px] text-ink-muted">
-            Everything you&apos;ve translated. Re-arrange languages and
-            re-download anytime — no re-translating, ever.
-          </p>
-        </div>
-        <RefreshButton onClick={refresh} />
-      </div>
-
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-          <label className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-            <span aria-hidden="true" className="text-faint">
-              ⌕
-            </span>
-            <span className="sr-only">Search history</span>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="search history"
-              className="min-w-0 flex-1 border-0 bg-transparent font-mono text-[11px] text-ink outline-none placeholder:text-faint"
-            />
-          </label>
-
-          <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto">
-            {jobs === null && !error && (
-              <p className="px-4 py-8 text-center text-sm text-ink-muted">
-                Loading…
-              </p>
-            )}
-            {jobs?.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-ink-muted">
-                No jobs yet.
-              </p>
-            )}
-            {jobs !== null && jobs.length > 0 && filteredJobs.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-ink-muted">
-                No matching jobs.
-              </p>
-            )}
-            {filteredJobs.map((job) => (
-              <JobListItem
-                key={job.id}
-                job={job}
-                active={selectedId === job.id}
-                onSelect={() => setSelectedId(job.id)}
+        <div className="space-y-5">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+            <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
+              History
+            </h1>
+            <label className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-4 py-3">
+              <span aria-hidden="true" className="text-faint">
+                ⌕
+              </span>
+              <span className="sr-only">Search history</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="search history"
+                className="min-w-0 flex-1 border-0 bg-transparent font-mono text-[11px] text-ink outline-none placeholder:text-faint"
               />
-            ))}
-          </div>
+            </label>
 
-          <QuotaFooter />
-        </aside>
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle">
+              {jobs === null && !error && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  Loading…
+                </p>
+              )}
+              {jobs?.length === 0 && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  No jobs yet.
+                </p>
+              )}
+              {jobs !== null &&
+                jobs.length > 0 &&
+                filteredJobs.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                    No matching jobs.
+                  </p>
+                )}
+              {filteredJobs.map((job) => (
+                <JobListItem
+                  key={job.id}
+                  job={job}
+                  active={selectedId === job.id}
+                  onSelect={() => setSelectedId(job.id)}
+                />
+              ))}
+            </div>
+
+            <QuotaFooter />
+          </aside>
+          <div ref={setLanguageOrderHost} />
+        </div>
 
         <div className="min-w-0">
           {selectedId ? (
-            <JobReview key={selectedId} jobId={selectedId} />
+            <JobReview
+              key={selectedId}
+              jobId={selectedId}
+              historySidebar={languageOrderHost}
+            />
           ) : (
             <div className="flex min-h-72 items-center justify-center rounded-2xl border border-border bg-surface p-8 text-center text-sm text-ink-muted">
               Select a job to review and download it.
@@ -136,6 +132,8 @@ function GuestHistory() {
   const [entries, setEntries] = useState<DemoHistoryEntry[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [languageOrderHost, setLanguageOrderHost] =
+    useState<HTMLDivElement | null>(null);
   const refresh = () => {
     setError(null);
     listDemoEntries()
@@ -155,51 +153,44 @@ function GuestHistory() {
   const selected = entries?.find((entry) => entry.id === selectedId);
   return (
     <section className="rise">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mb-2 inline-flex rounded-full bg-accent-soft px-3 py-1 font-mono text-xs font-semibold text-accent-deep">
-            Demo History · local only
-          </div>
-          <h1 className="text-3xl font-bold tracking-[-.03em]">History</h1>
-          <p className="mt-2 text-[15px] text-ink-muted">
-            Signed-out History contains only demo translations stored in this
-            browser for 30 minutes.
-          </p>
-        </div>
-        <RefreshButton onClick={refresh} />
-      </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-          <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto">
-            {entries === null && (
-              <p className="px-4 py-8 text-center text-sm text-ink-muted">
-                Loading…
-              </p>
-            )}
-            {entries?.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-ink-muted">
-                No demo translations yet.
-              </p>
-            )}
-            {entries?.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setSelectedId(entry.id)}
-                className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left ${selectedId === entry.id ? "border-l-accent bg-accent-soft/50" : "border-l-transparent bg-surface"}`}
-              >
-                <span className="block truncate text-[13.5px] font-semibold">
-                  {entry.filename}
-                </span>
-                <span className="mt-0.5 block font-mono text-[10.5px] text-faint">
-                  Demo translation ·{" "}
-                  {formatJobDate(new Date(entry.createdAt).toISOString())}
-                </span>
-              </button>
-            ))}
-          </div>
-        </aside>
+        <div className="space-y-5">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+            <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
+              History
+            </h1>
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle">
+              {entries === null && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  Loading…
+                </p>
+              )}
+              {entries?.length === 0 && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  No demo translations yet.
+                </p>
+              )}
+              {entries?.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setSelectedId(entry.id)}
+                  className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left ${selectedId === entry.id ? "border-l-accent bg-accent-soft/70" : "border-l-transparent bg-transparent hover:bg-surface"}`}
+                >
+                  <span className="block truncate text-[13.5px] font-semibold">
+                    {entry.filename}
+                  </span>
+                  <span className="mt-0.5 block font-mono text-[10.5px] text-faint">
+                    Demo translation ·{" "}
+                    {formatJobDate(new Date(entry.createdAt).toISOString())}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div ref={setLanguageOrderHost} />
+        </div>
         <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
           {selected ? (
             <StackedOutput
@@ -210,6 +201,7 @@ function GuestHistory() {
                 filename: selected.filename,
                 meta: `Demo translation · ${formatJobDate(new Date(selected.createdAt).toISOString())}`,
               }}
+              historySidebar={languageOrderHost}
             />
           ) : (
             <div className="flex min-h-72 items-center justify-center p-8 text-center text-sm text-ink-muted">
@@ -235,7 +227,7 @@ function JobListItem({
     <button
       type="button"
       onClick={onSelect}
-      className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left outline-none hover:bg-surface-subtle ${active ? "border-l-accent bg-accent-soft/50" : "border-l-transparent bg-surface"}`}
+      className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left outline-none ${active ? "border-l-accent bg-accent-soft/70" : "border-l-transparent bg-transparent hover:bg-surface"}`}
     >
       <span className="flex items-center gap-2.5">
         <span className="min-w-0 flex-1">
@@ -255,7 +247,13 @@ function JobListItem({
   );
 }
 
-function JobReview({ jobId }: { jobId: string }) {
+function JobReview({
+  jobId,
+  historySidebar,
+}: {
+  jobId: string;
+  historySidebar: HTMLElement | null;
+}) {
   const { result: job, error } = usePoll(
     () => pollJob(jobId),
     (body) => body.status === "done" || body.status === "failed",
@@ -281,6 +279,7 @@ function JobReview({ jobId }: { jobId: string }) {
             (target) => target !== job.src_lang,
           )}
           historyHeader={{ filename: job.filename ?? job.id.slice(0, 8), meta }}
+          historySidebar={historySidebar}
         />
       ) : (
         <div className="p-6">
