@@ -53,5 +53,24 @@ def test_prepare_rejects_unparseable() -> None:
     assert resp.status_code == 400
 
 
+def test_prepare_rate_limit_and_forwarded_client_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PREPARE_RATE_LIMIT", "2")
+    monkeypatch.setenv("PREPARE_RATE_WINDOW_SECONDS", "600")
+    headers = {"x-forwarded-for": "198.51.100.10"}
+    assert client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers).status_code == 200
+    assert client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers).status_code == 200
+    limited = client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers)
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+
+    other_client = {"x-forwarded-for": "198.51.100.11"}
+    assert (
+        client.post("/api/srt/prepare", files=_files(EN_SRT), headers=other_client).status_code
+        == 200
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
