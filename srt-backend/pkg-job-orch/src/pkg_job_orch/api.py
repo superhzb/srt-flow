@@ -23,6 +23,7 @@ __all__ = [
     "FunnelEvent",
     "BalanceSnapshot",
     "balance_snapshot",
+    "billed_minutes",
     "debit_job_once",
     "source_minutes",
     "ProcessedEvent",
@@ -67,7 +68,13 @@ __all__ = [
 ]
 
 from .config import JobOrchSettings, load_settings
-from .credits import BalanceSnapshot, balance_snapshot, debit_job_once, source_minutes
+from .credits import (
+    BalanceSnapshot,
+    balance_snapshot,
+    billed_minutes,
+    debit_job_once,
+    source_minutes,
+)
 from .db import (
     DEFAULT_DATABASE_URL,
     get_engine,

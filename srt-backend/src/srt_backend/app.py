@@ -83,7 +83,7 @@ def _build_ctx() -> JobContext:
         storage=LocalStorage(os.environ.get("STORAGE_ROOT", "./.data/dev/storage")),
         dev_user_id=DEV_USER_ID,
         notifier=NullNotifier(),
-        free_tier_monthly_limit=int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "20")),
+        free_tier_monthly_limit=int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "30")),
     )
 
 
@@ -157,7 +157,7 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
     app.dependency_overrides[require_job_user] = get_current_user
-    app.state.free_tier_monthly_limit = int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "20"))
+    app.state.free_tier_monthly_limit = int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "30"))
     app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(billing_router, prefix="/api")

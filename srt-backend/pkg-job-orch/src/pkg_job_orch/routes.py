@@ -18,10 +18,10 @@ from pkg_srt_services.api import Cue, build_stacked_srt, dict_to_cue, parse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel import col, select
 
-from .credits import balance_snapshot, source_minutes
+from .credits import balance_snapshot, billed_minutes, source_minutes
 from .db import session_scope
 from .models import Job, User, dropped_from_json, progress_from_json, tgt_langs_from_csv
-from .orchestration import EnqueueError, enqueue
+from .orchestration import EnqueueError, clean_target_langs, enqueue
 from .workers import WorkerResolutionError
 
 __all__ = ["router"]
@@ -68,16 +68,20 @@ async def create_job(
     ctx = request.app.state.job_ctx
     cues = _dict_to_cues(body.cues)
     minutes = source_minutes(cues)
+    # Option A pricing: bill source minutes once per target language. Use the
+    # deduped target list so the pre-check matches what enqueue persists.
+    lang_count = len(clean_target_langs(body.targets, body.source_lang))
+    billed = billed_minutes(minutes, lang_count)
     try:
         with session_scope() as session:
-            free_limit = int(getattr(request.app.state, "free_tier_monthly_limit", 20))
+            free_limit = int(getattr(request.app.state, "free_tier_monthly_limit", 30))
             balance = balance_snapshot(session, user.id, free_limit)
-            if balance.purchased_minutes < 0 or minutes > balance.available_minutes:
+            if balance.purchased_minutes < 0 or billed > balance.available_minutes:
                 raise HTTPException(
                     status_code=status.HTTP_402_PAYMENT_REQUIRED,
                     detail={
                         "message": "Insufficient subtitle minutes",
-                        "required_minutes": minutes,
+                        "required_minutes": billed,
                         "available_minutes": balance.available_minutes,
                     },
                 )

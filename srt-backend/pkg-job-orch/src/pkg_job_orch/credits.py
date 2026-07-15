@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pkg_srt_services.api import Cue
 from sqlmodel import Session, func, select
 
-from .models import CreditLedgerEntry, Job, User
+from .models import CreditLedgerEntry, Job, User, tgt_langs_from_csv
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +29,16 @@ def source_minutes(cues: list[Cue]) -> int:
     """Return max source cue end time rounded up to a whole minute."""
     max_ms = max((_timestamp_ms(cue.end) for cue in cues), default=0)
     return max(1, math.ceil(max_ms / 60_000))
+
+
+def billed_minutes(source_minutes: int, target_count: int) -> int:
+    """Metered unit (option A): source minutes × number of target languages.
+
+    Each target language is a full translation pass over the source, so 3
+    languages cost 3× a single language. ``target_count`` of 0 is treated as
+    1 (a job always has at least one target after dedup).
+    """
+    return source_minutes * max(1, target_count)
 
 
 def usage_month(value: datetime) -> str:
@@ -76,7 +86,8 @@ def debit_job_once(session: Session, job: Job, free_limit: int) -> bool:
         raise LookupError(f"user {job.user_id} not found")
     month = usage_month(job.created_at)
     snapshot = balance_snapshot(session, job.user_id, free_limit, month=month)
-    purchased_debit = max(0, job.source_minutes - snapshot.free_remaining)
+    billed = billed_minutes(job.source_minutes, len(tgt_langs_from_csv(job.tgt_langs)))
+    purchased_debit = max(0, billed - snapshot.free_remaining)
     session.add(
         CreditLedgerEntry(
             id=uuid.uuid4().hex,
@@ -84,7 +95,7 @@ def debit_job_once(session: Session, job: Job, free_limit: int) -> bool:
             entry_type="job_debit",
             minutes_delta=-purchased_debit,
             balance_after=user.purchased_minutes - purchased_debit,
-            usage_minutes=job.source_minutes,
+            usage_minutes=billed,
             usage_month=month,
             idempotency_key=f"job:{job.id}",
             job_id=job.id,

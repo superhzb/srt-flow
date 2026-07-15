@@ -13,6 +13,7 @@ from pkg_job_orch.api import (
     Job,
     User,
     balance_snapshot,
+    billed_minutes,
     debit_job_once,
     get_engine,
     reset_engine,
@@ -32,6 +33,54 @@ def test_source_minutes_uses_latest_cue_end_and_ceils() -> None:
     ]
 
     assert source_minutes(cues) == 61
+
+
+def test_billed_minutes_scales_with_target_language_count() -> None:
+    # Option A: each target language is a full pass over the source.
+    assert billed_minutes(10, 1) == 10
+    assert billed_minutes(10, 3) == 30
+    # Defensive: a job always has >= 1 target after dedup.
+    assert billed_minutes(10, 0) == 10
+
+
+def test_debit_bills_source_minutes_per_target_language(
+    temp_env: dict[str, str],
+) -> None:
+    database_url = temp_env["DATABASE_URL"]
+    reset_engine()
+    run_migrations(database_url)
+    submitted_at = datetime(2026, 7, 13, tzinfo=UTC)
+    with session_scope(database_url) as session:
+        session.add(User(id="multi", email="multi@example.test", purchased_minutes=100))
+        # 10 source minutes × 3 target languages = 30 billed minutes.
+        session.add(
+            Job(
+                id="job_multi",
+                user_id="multi",
+                status="done",
+                worker="cloud",
+                src_lang="en",
+                tgt_langs="fr,de,es",
+                source_minutes=10,
+                created_at=submitted_at,
+            )
+        )
+
+    with session_scope(database_url) as session:
+        job = session.get(Job, "job_multi")
+        assert job is not None
+        assert debit_job_once(session, job, 30)
+
+    with session_scope(database_url) as session:
+        entry = session.exec(
+            select(CreditLedgerEntry).where(CreditLedgerEntry.job_id == "job_multi")
+        ).one()
+        # 30 billed − 30 free = 0 purchased consumed; free tier absorbs it all.
+        assert entry.usage_minutes == 30
+        assert entry.minutes_delta == 0
+        snapshot = balance_snapshot(session, "multi", 30, month="2026-07")
+        assert snapshot.free_remaining == 0
+        assert snapshot.available_minutes == 100
 
 
 async def test_purchase_refund_dispute_and_reinstatement_are_idempotent(
@@ -134,6 +183,7 @@ def test_success_debit_consumes_free_minutes_before_purchased(
                 status="done",
                 worker="cloud",
                 src_lang="en",
+                tgt_langs="fr",
                 source_minutes=25,
                 created_at=submitted_at,
             )

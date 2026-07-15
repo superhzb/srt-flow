@@ -44,6 +44,7 @@ __all__ = [
     "Notifier",
     "NullNotifier",
     "WorkerClientFn",
+    "clean_target_langs",
     "default_worker_client",
     "enqueue",
     "recover_jobs",
@@ -56,6 +57,23 @@ logger = logging.getLogger(__name__)
 # The dev user owns every slice-3 job. A fixed synthetic id keeps test
 # assertions stable; slice 4 swaps this for real OAuth upserts.
 DEV_USER_ID = "dev-user"
+
+
+def clean_target_langs(targets: list[str], source_lang: str) -> list[str]:
+    """Dedup targets, drop the source if it slipped in, preserve order.
+
+    The authoritative billed language count (option A pricing) is derived
+    from this list, so the route's 402 pre-check and enqueue agree.
+    """
+    seen: set[str] = set()
+    clean: list[str] = []
+    for t in targets:
+        if t == source_lang or t in seen or not t:
+            continue
+        seen.add(t)
+        clean.append(t)
+    return clean
+
 
 # Polling cadence on an empty queue — keeps the loop responsive to the
 # shutdown signal without busy-spinning.
@@ -127,7 +145,7 @@ class JobContext:
     storage: Storage
     dev_user_id: str
     notifier: Notifier
-    free_tier_monthly_limit: int = 20
+    free_tier_monthly_limit: int = 30
     # Patchable seam: tests swap this for a fake. Real code uses
     # ``default_worker_client``. Default assigned in __post_init__ to
     # sidestep dataclass field-default-vs-factory awkwardness.
@@ -193,13 +211,7 @@ def enqueue(
         raise EnqueueError("at least one target language is required")
 
     # Dedup targets, drop the source if it slipped in, preserve order.
-    seen: set[str] = set()
-    clean_targets: list[str] = []
-    for t in targets:
-        if t == source_lang or t in seen or not t:
-            continue
-        seen.add(t)
-        clean_targets.append(t)
+    clean_targets = clean_target_langs(targets, source_lang)
     if not clean_targets:
         raise EnqueueError("at least one target language is required (after dedup)")
 
