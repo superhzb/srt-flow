@@ -2,18 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   errMessage,
+  getBillingBalance,
   listJobs,
   pollJob,
+  type BillingBalance,
   type JobStatus,
   type JobSummary,
 } from "./api.ts";
-import { ErrorBanner } from "./components.tsx";
+import { CreditUsageBar, ErrorBanner } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
 import { listDemoEntries, type DemoHistoryEntry } from "./clientStorage.ts";
-
-const MOCK_QUOTA = { used: 16, limit: 30 };
+import { formatLedgerDate } from "./lib.ts";
 
 export function JobsScreen({ guest = false }: { guest?: boolean }) {
   return guest ? <GuestHistory /> : <RealJobsScreen />;
@@ -22,6 +23,7 @@ export function JobsScreen({ guest = false }: { guest?: boolean }) {
 function RealJobsScreen() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [balance, setBalance] = useState<BillingBalance | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [languageOrderHost, setLanguageOrderHost] =
@@ -37,6 +39,12 @@ function RealJobsScreen() {
     if (poll.result) setJobs(poll.result);
     if (poll.error) setError(poll.error);
   }, [poll.result, poll.error]);
+
+  useEffect(() => {
+    getBillingBalance()
+      .then(setBalance)
+      .catch(() => setBalance(null));
+  }, [poll.result]);
 
   useEffect(() => {
     if (!selectedId && jobs?.length) setSelectedId(jobs[0].id);
@@ -64,9 +72,9 @@ function RealJobsScreen() {
     <section className="rise">
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-5">
-          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="grid gap-5 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-5 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
             <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
               History
             </h1>
@@ -83,7 +91,7 @@ function RealJobsScreen() {
               />
             </label>
 
-            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle">
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle lg:max-h-none lg:min-h-0 lg:flex-1">
               {jobs === null && !error && (
                 <p className="px-4 py-8 text-center text-sm text-ink-muted">
                   Loading…
@@ -111,12 +119,15 @@ function RealJobsScreen() {
               ))}
             </div>
 
-            <QuotaFooter />
+            {balance && <QuotaFooter balance={balance} />}
           </aside>
-          <div ref={setLanguageOrderHost} />
+          <div
+            ref={setLanguageOrderHost}
+            className="flow-scroll lg:mt-5 lg:max-h-[45%] lg:min-h-0 lg:shrink-0 lg:overflow-y-auto"
+          />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:h-full lg:min-h-0">
           {selectedId ? (
             <JobReview
               key={selectedId}
@@ -160,13 +171,13 @@ function GuestHistory() {
   return (
     <section className="rise">
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-5">
-          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="grid gap-5 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-5 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
             <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
               History
             </h1>
-            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle">
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle lg:max-h-none lg:min-h-0 lg:flex-1">
               {entries === null && (
                 <p className="px-4 py-8 text-center text-sm text-ink-muted">
                   Loading…
@@ -189,15 +200,18 @@ function GuestHistory() {
                   </span>
                   <span className="mt-0.5 block font-mono text-[10.5px] text-faint">
                     Demo translation ·{" "}
-                    {formatJobDate(new Date(entry.createdAt).toISOString())}
+                    {formatLedgerDate(new Date(entry.createdAt).toISOString())}
                   </span>
                 </button>
               ))}
             </div>
           </aside>
-          <div ref={setLanguageOrderHost} />
+          <div
+            ref={setLanguageOrderHost}
+            className="flow-scroll lg:mt-5 lg:max-h-[45%] lg:min-h-0 lg:shrink-0 lg:overflow-y-auto"
+          />
         </div>
-        <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:h-full lg:min-h-0">
           {selected ? (
             <StackedOutput
               demoCues={selected.cuesByLanguage}
@@ -205,7 +219,7 @@ function GuestHistory() {
               targetLangs={selected.targetLangs}
               historyHeader={{
                 filename: selected.filename,
-                meta: `Demo translation · ${formatJobDate(new Date(selected.createdAt).toISOString())}`,
+                meta: `Demo translation · ${formatLedgerDate(new Date(selected.createdAt).toISOString())}`,
               }}
               historySidebar={languageOrderHost}
             />
@@ -241,10 +255,16 @@ function JobListItem({
             {job.filename ?? job.id.slice(0, 8)}
           </span>
           <span className="mt-0.5 block truncate font-mono text-[10.5px] text-faint">
-            {formatJobDate(job.created_at)} ·{" "}
+            {formatLedgerDate(job.created_at)} ·{" "}
             <span aria-hidden="true">{langMeta(job.src_lang).flag}</span>{" "}
-            {job.src_lang.toUpperCase()} → {job.tgt_langs.length}{" "}
-            {job.tgt_langs.length === 1 ? "lang" : "langs"}
+            {job.src_lang.toUpperCase()} →{" "}
+            {job.tgt_langs.map((lang, index) => (
+              <span key={lang}>
+                {index > 0 && ", "}
+                <span aria-hidden="true">{langMeta(lang).flag}</span>{" "}
+                {lang.toUpperCase()}
+              </span>
+            ))}
           </span>
         </span>
         <StatusBadge status={job.status} />
@@ -274,9 +294,9 @@ function JobReview({
       </div>
     );
 
-  const meta = `${formatJobDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${job.tgt_langs.length} ${job.tgt_langs.length === 1 ? "language" : "languages"}`;
+  const meta = `${formatLedgerDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${job.tgt_langs.length} ${job.tgt_langs.length === 1 ? "language" : "languages"}`;
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_14px_34px_-26px_rgba(20,24,31,.2)]">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_14px_34px_-26px_rgba(20,24,31,.2)] lg:h-full lg:min-h-0">
       {job.status === "done" ? (
         <StackedOutput
           jobId={jobId}
@@ -305,22 +325,10 @@ function JobReview({
   );
 }
 
-function QuotaFooter() {
-  const percent = Math.round((MOCK_QUOTA.used / MOCK_QUOTA.limit) * 100);
+function QuotaFooter({ balance }: { balance: BillingBalance }) {
   return (
     <div className="border-t border-border-subtle bg-surface-subtle px-4 py-3.5">
-      <div className="mb-1.5 flex justify-between font-mono text-[10.5px] text-faint">
-        <span>
-          Free · {MOCK_QUOTA.used}/{MOCK_QUOTA.limit} min
-        </span>
-        <span>{percent}%</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-surface-inset">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-accent to-info"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+      <CreditUsageBar used={balance.free_used} limit={balance.free_limit} />
     </div>
   );
 }
@@ -341,16 +349,4 @@ function StatusBadge({ status }: { status: JobStatus }) {
       {status}
     </span>
   );
-}
-
-function formatJobDate(value: string): string {
-  const date = new Date(value);
-  const elapsed = Date.now() - date.getTime();
-  if (elapsed >= 0 && elapsed < 60_000) return "Just now";
-  if (elapsed >= 0 && elapsed < 3_600_000)
-    return `${Math.floor(elapsed / 60_000)}m ago`;
-  if (elapsed >= 0 && elapsed < 86_400_000)
-    return `${Math.floor(elapsed / 3_600_000)}h ago`;
-  if (elapsed >= 0 && elapsed < 172_800_000) return "Yesterday";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

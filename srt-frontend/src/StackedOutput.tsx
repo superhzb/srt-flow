@@ -237,7 +237,7 @@ export function StackedOutput({
     <section
       className={
         historyHeader
-          ? "bg-surface"
+          ? "flex h-full min-h-0 flex-col bg-surface"
           : "rounded-2xl border border-border bg-surface-subtle p-4 sm:p-5"
       }
     >
@@ -332,7 +332,7 @@ function stackDemoCues(
 function ReviewPreview({ value, order }: { value: string; order: string[] }) {
   const cues = useMemo(() => parseStackedPreview(value), [value]);
   return (
-    <div className="flow-scroll max-h-[620px] overflow-y-auto bg-surface-subtle py-1">
+    <div className="flow-scroll min-h-0 flex-1 overflow-y-auto bg-surface-subtle py-1">
       {cues.map((cue, cueIndex) => (
         <article
           key={`${cue.index}-${cueIndex}`}

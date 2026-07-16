@@ -84,10 +84,30 @@ export default function App() {
     null,
   );
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const configureRef = useRef<HTMLElement>(null);
   const processingRef = useRef<HTMLElement>(null);
   const previousStage = useRef<Stage>("idle");
   const translateButtonRef = useRef<HTMLButtonElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -397,6 +417,7 @@ export default function App() {
   }, [workflow.targets]);
 
   async function handleLogout() {
+    setAccountMenuOpen(false);
     try {
       await logout();
     } finally {
@@ -526,23 +547,35 @@ export default function App() {
               {theme === "light" ? "☾" : "☀"}
             </button>
             {session ? (
-              <details className="relative">
-                <summary className="cursor-pointer list-none rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium">
+              <div ref={accountMenuRef} className="relative">
+                <button
+                  type="button"
+                  aria-expanded={accountMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={() => setAccountMenuOpen((open) => !open)}
+                  className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium"
+                >
                   {session.email}
-                </summary>
-                <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-surface p-2 shadow-xl">
-                  <p className="truncate px-2 py-1 text-xs text-ink-muted">
-                    {session.email}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void handleLogout()}
-                    className="mt-1 w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-subtle"
+                </button>
+                {accountMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-surface p-2 shadow-xl"
                   >
-                    Logout
-                  </button>
-                </div>
-              </details>
+                    <p className="truncate px-2 py-1 text-xs text-ink-muted">
+                      {session.email}
+                    </p>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void handleLogout()}
+                      className="mt-1 w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-subtle"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <a
                 href={googleLoginUrl()}
