@@ -121,6 +121,38 @@ export function RefreshButton({
   );
 }
 
+/** Shared monthly credit usage meter used by History and Billing. */
+export function QuotaBar({ used, limit }: { used: number; limit: number }) {
+  const remaining = Math.min(limit, Math.max(0, limit - used));
+  const percent =
+    limit > 0 ? Math.min(100, Math.max(0, (remaining / limit) * 100)) : 0;
+  return (
+    <div>
+      <div className="mb-1.5 flex justify-between font-mono text-[10.5px] text-faint">
+        <span>
+          Free · {remaining}/{limit} min
+        </span>
+        <span>{Math.round(percent)}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Monthly free credits remaining"
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={remaining}
+        className="h-1.5 overflow-hidden rounded-full bg-surface-inset"
+      >
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-accent to-info"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export const CreditUsageBar = QuotaBar;
+
 /**
  * Toggle-on .srt preview. Dedupes the fetch-on-toggle logic that lived in both
  * ResultsScreen (ResultPanel) and JobsScreen (PreviewButton): lazily fetches

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -27,11 +28,11 @@ def test_billing_webhook_credits_shared_auth_store(
     with TestClient(api) as client:
         me = client.get("/api/auth/me")
         assert me.status_code == 200
-        assert me.json() == {
-            "email": "dev@example.test",
-            "tier": "free",
-            "is_admin": False,
-        }
+        assert me.json()["id"] == "dev-user"
+        assert me.json()["email"] == "dev@example.test"
+        assert me.json()["tier"] == "free"
+        assert me.json()["is_admin"] is False
+        assert isinstance(me.json()["created_at"], str)
 
         event = _paid_event("evt_paid", "cs_paid", "")
         webhook = client.post(
@@ -221,7 +222,9 @@ def test_billing_checkout_uses_checkout_session_when_configured(
     assert calls[0]["pack"] == "small"
     assert calls[0]["minutes"] == 100
     assert calls[0]["customer_email"] == "dev@example.test"
-    assert calls[0]["success_url"] == "http://localhost:5730/?checkout=success"
+    assert calls[0]["success_url"] == (
+        "http://localhost:5730/?checkout=success&session_id={CHECKOUT_SESSION_ID}"
+    )
     assert calls[0]["cancel_url"] == "http://localhost:5730/?checkout=cancel"
 
 
@@ -285,6 +288,249 @@ def test_apply_purchase_once_is_atomic_on_duplicate_session(
     assert user is not None
     assert user.tier == "free"
     assert user.purchased_minutes == 100
+
+
+def test_billing_history_uses_keyset_pagination_and_server_filters(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_env: dict[str, str],
+) -> None:
+    del temp_env
+    _configure_billing_env(monkeypatch)
+
+    from pkg_job_orch.api import CreditLedgerEntry, get_engine
+    from srt_backend.app import api
+
+    entries = [
+        CreditLedgerEntry(
+            id="purchase-c",
+            user_id="dev-user",
+            entry_type="purchase",
+            minutes_delta=100,
+            usage_minutes=0,
+            balance_after=100,
+            idempotency_key="history:purchase-c",
+            pack="small",
+            amount_cents=399,
+            currency="usd",
+            receipt_url="https://pay.example/receipt",
+            created_at=datetime(2026, 1, 3, tzinfo=UTC),
+        ),
+        CreditLedgerEntry(
+            id="free-usage",
+            user_id="dev-user",
+            entry_type="job_debit",
+            minutes_delta=0,
+            usage_minutes=7,
+            balance_after=100,
+            idempotency_key="history:free-usage",
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+        ),
+        CreditLedgerEntry(
+            id="paid-usage",
+            user_id="dev-user",
+            entry_type="job_debit",
+            minutes_delta=-3,
+            usage_minutes=7,
+            balance_after=97,
+            idempotency_key="history:paid-usage",
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+        ),
+        CreditLedgerEntry(
+            id="purchase-b",
+            user_id="dev-user",
+            entry_type="purchase",
+            minutes_delta=100,
+            usage_minutes=0,
+            balance_after=193,
+            idempotency_key="history:purchase-b",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        CreditLedgerEntry(
+            id="purchase-a",
+            user_id="dev-user",
+            entry_type="purchase",
+            minutes_delta=100,
+            usage_minutes=0,
+            balance_after=293,
+            idempotency_key="history:purchase-a",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        CreditLedgerEntry(
+            id="adjustment-a",
+            user_id="dev-user",
+            entry_type="dispute_reinstated",
+            minutes_delta=100,
+            usage_minutes=0,
+            balance_after=393,
+            idempotency_key="history:adjustment-a",
+            created_at=datetime(2025, 12, 31, tzinfo=UTC),
+        ),
+    ]
+
+    with TestClient(api) as client:
+        with Session(get_engine()) as session:
+            session.add_all(entries)
+            session.commit()
+
+        first = client.get("/api/billing/history?limit=2")
+        assert first.status_code == 200
+        first_body = first.json()
+        assert [row["id"] for row in first_body["entries"]] == [
+            "purchase-c",
+            "paid-usage",
+        ]
+        assert first_body["entries"][1]["usage_minutes"] == 7
+        assert first_body["entries"][1]["minutes_delta"] == -3
+        assert first_body["entries"][0]["receipt_url"] == "https://pay.example/receipt"
+        assert first_body["has_more"] is True
+        assert first_body["next_cursor"]
+
+        with Session(get_engine()) as session:
+            session.add(
+                CreditLedgerEntry(
+                    id="inserted-new",
+                    user_id="dev-user",
+                    entry_type="purchase",
+                    minutes_delta=100,
+                    idempotency_key="history:inserted-new",
+                    created_at=datetime(2026, 1, 4, tzinfo=UTC),
+                )
+            )
+            session.commit()
+
+        second = client.get(
+            "/api/billing/history",
+            params={"limit": 2, "before": first_body["next_cursor"]},
+        )
+        assert second.status_code == 200
+        assert [row["id"] for row in second.json()["entries"]] == [
+            "purchase-b",
+            "purchase-a",
+        ]
+        assert second.json()["has_more"] is True
+
+        adjustments = client.get("/api/billing/history", params={"category": "adjustments"})
+        assert [row["entry_type"] for row in adjustments.json()["entries"]] == [
+            "dispute_reinstated"
+        ]
+        usage = client.get("/api/billing/history", params={"category": "usage"})
+        assert [row["id"] for row in usage.json()["entries"]] == ["paid-usage"]
+        assert client.get("/api/billing/history?limit=0").status_code == 422
+        assert client.get("/api/billing/history?limit=101").status_code == 422
+
+
+def test_billing_confirmation_is_session_and_user_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_env: dict[str, str],
+) -> None:
+    del temp_env
+    _configure_billing_env(monkeypatch)
+
+    import asyncio
+
+    from pkg_auth.api import User, get_current_user
+    from pkg_billing.api import get_billing_store
+    from srt_backend.app import api
+
+    with TestClient(api) as client:
+        assert client.get("/api/billing/confirm?session_id=cs_confirm").json() == {"applied": False}
+        store = get_billing_store()
+        assert asyncio.run(
+            store.apply_purchase_once(
+                "evt_confirm",
+                "cs_confirm",
+                "dev-user",
+                "2026-01-01T00:00:00+00:00",
+                pack="small",
+                minutes=100,
+                amount_cents=399,
+                currency="usd",
+                payment_intent_id="pi_confirm",
+                charge_id="ch_confirm",
+            )
+        )
+        assert client.get("/api/billing/confirm?session_id=cs_confirm").json() == {"applied": True}
+
+        async def other_user() -> User:
+            return User(
+                id="other-user",
+                email="other@example.test",
+                tier="free",
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+
+        api.dependency_overrides[get_current_user] = other_user
+        try:
+            assert client.get("/api/billing/confirm?session_id=cs_confirm").json() == {
+                "applied": False
+            }
+        finally:
+            api.dependency_overrides.pop(get_current_user, None)
+
+
+def test_ledger_rows_keep_stripe_event_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_env: dict[str, str],
+) -> None:
+    del temp_env
+    _configure_billing_env(monkeypatch)
+
+    import asyncio
+
+    from pkg_billing.api import get_billing_store
+    from srt_backend.app import api
+
+    with TestClient(api):
+        store = get_billing_store()
+        assert asyncio.run(
+            store.apply_purchase_once(
+                "evt_timestamp_purchase",
+                "cs_timestamp",
+                "dev-user",
+                "2026-01-03T00:00:00+00:00",
+                pack="small",
+                minutes=100,
+                amount_cents=399,
+                currency="usd",
+                payment_intent_id="pi_timestamp",
+                charge_id="ch_timestamp",
+            )
+        )
+        assert asyncio.run(
+            store.apply_refund_once(
+                event_id="evt_timestamp_refund",
+                refund_id="re_timestamp",
+                amount_cents=100,
+                payment_intent_id="pi_timestamp",
+                charge_id="ch_timestamp",
+                reason="partial refund",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+        assert asyncio.run(
+            store.apply_dispute_once(
+                event_id="evt_timestamp_dispute",
+                dispute_id="dp_timestamp",
+                payment_intent_id="pi_timestamp",
+                charge_id="ch_timestamp",
+                reason="dispute",
+                reinstated=False,
+                created_at="2026-01-02T00:00:00+00:00",
+            )
+        )
+
+        rows = asyncio.run(store.list_ledger("dev-user", 10))
+
+    assert [row.entry_type for row in rows] == [
+        "purchase",
+        "dispute",
+        "refund",
+    ]
+    assert [row.created_at.date().isoformat() for row in rows] == [
+        "2026-01-03",
+        "2026-01-02",
+        "2026-01-01",
+    ]
 
 
 def _body(event: dict[str, Any]) -> bytes:

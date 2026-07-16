@@ -89,9 +89,11 @@ export interface JobSummary {
 }
 
 export interface Me {
+  id: string;
   email: string;
   tier: "free" | "paid";
   is_admin: boolean;
+  created_at: string;
 }
 
 export interface CheckoutResponse {
@@ -106,6 +108,29 @@ export interface BillingBalance {
   free_remaining: number;
   purchased_minutes: number;
   available_minutes: number;
+}
+
+export type BillingCategory = "all" | "purchases" | "usage" | "adjustments";
+
+export interface BillingTransaction {
+  id: string;
+  created_at: string;
+  entry_type:
+    "purchase" | "job_debit" | "refund" | "dispute" | "dispute_reinstated";
+  minutes_delta: number;
+  usage_minutes: number;
+  balance_after: number | null;
+  pack: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  reason: string | null;
+  receipt_url: string | null;
+}
+
+export interface BillingHistoryPage {
+  entries: BillingTransaction[];
+  has_more: boolean;
+  next_cursor: string | null;
 }
 
 export async function prepareSrt(file: File): Promise<PrepareResponse> {
@@ -186,6 +211,30 @@ export async function startCheckout(
 
 export async function getBillingBalance(): Promise<BillingBalance> {
   return apiFetch<BillingBalance>("/api/billing/balance");
+}
+
+export async function getBillingHistory(
+  opts: {
+    limit?: number;
+    before?: string;
+    category?: BillingCategory;
+  } = {},
+): Promise<BillingHistoryPage> {
+  const query = new URLSearchParams();
+  if (opts.limit !== undefined) query.set("limit", String(opts.limit));
+  if (opts.before) query.set("before", opts.before);
+  if (opts.category && opts.category !== "all") {
+    query.set("category", opts.category);
+  }
+  const suffix = query.size ? `?${query}` : "";
+  return apiFetch<BillingHistoryPage>(`/api/billing/history${suffix}`);
+}
+
+export async function getBillingConfirm(
+  sessionId: string,
+): Promise<{ applied: boolean }> {
+  const query = new URLSearchParams({ session_id: sessionId });
+  return apiFetch<{ applied: boolean }>(`/api/billing/confirm?${query}`);
 }
 
 export function googleLoginUrl(): string {

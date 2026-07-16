@@ -80,6 +80,9 @@ export default function App() {
   const [checkoutStatus, setCheckoutStatus] = useState<
     "success" | "cancel" | null
   >(null);
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(
+    null,
+  );
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const configureRef = useRef<HTMLElement>(null);
   const processingRef = useRef<HTMLElement>(null);
@@ -142,9 +145,12 @@ export default function App() {
     const url = new URL(window.location.href);
     const checkout = url.searchParams.get("checkout");
     if (checkout !== "success" && checkout !== "cancel") return;
+    const sessionId = url.searchParams.get("session_id");
     setTab("billing");
     setCheckoutStatus(checkout);
+    setCheckoutSessionId(sessionId);
     url.searchParams.delete("checkout");
+    url.searchParams.delete("session_id");
     window.history.replaceState(
       {},
       "",
@@ -541,7 +547,11 @@ export default function App() {
           {tab === "billing" && session && (
             <BillingScreen
               checkoutStatus={checkoutStatus}
-              onCheckoutStatusHandled={() => setCheckoutStatus(null)}
+              checkoutSessionId={checkoutSessionId}
+              onCheckoutStatusHandled={() => {
+                setCheckoutStatus(null);
+                setCheckoutSessionId(null);
+              }}
             />
           )}
           {tab === "translate" && (

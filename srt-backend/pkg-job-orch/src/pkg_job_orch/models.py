@@ -131,6 +131,7 @@ class CreditLedgerEntry(SQLModel, table=True):
     payment_intent_id: str | None = Field(default=None, index=True)
     charge_id: str | None = Field(default=None, index=True)
     reason: str | None = Field(default=None)
+    receipt_url: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 

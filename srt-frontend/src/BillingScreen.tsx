@@ -3,19 +3,36 @@ import { useEffect, useRef, useState } from "react";
 import {
   errMessage,
   getBillingBalance,
+  getBillingConfirm,
+  getBillingHistory,
   getMe,
   googleLoginUrl,
   startCheckout,
   type BillingBalance,
+  type BillingCategory,
+  type BillingHistoryPage,
+  type BillingTransaction,
   type CreditPack,
   type Me,
 } from "./api.ts";
-import { ErrorBanner, RefreshButton } from "./components.tsx";
+import {
+  ErrorBanner,
+  QuotaBar,
+  RefreshButton,
+  TierBadge,
+} from "./components.tsx";
 import { usePoll } from "./hooks.ts";
+import { formatCurrency, formatLedgerDate } from "./lib.ts";
+import { Card } from "./ui.tsx";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "ready"; me: Me | null; balance: BillingBalance | null }
+  | {
+      kind: "ready";
+      me: Me | null;
+      balance: BillingBalance | null;
+      history: BillingHistoryPage | null;
+    }
   | { kind: "error"; message: string };
 
 type CheckoutStatus = "success" | "cancel" | null;
@@ -23,6 +40,7 @@ type ConfirmationState = { kind: "confirming" } | { kind: "timeout" } | null;
 
 interface BillingScreenProps {
   checkoutStatus?: CheckoutStatus;
+  checkoutSessionId?: string | null;
   onCheckoutStatusHandled?: () => void;
 }
 
@@ -49,22 +67,48 @@ const packs: Array<{
   },
 ];
 
+const historyFilters: Array<{ value: BillingCategory; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "purchases", label: "Purchases" },
+  { value: "usage", label: "Usage" },
+  { value: "adjustments", label: "Adjustments" },
+];
+
 export function BillingScreen({
   checkoutStatus = null,
+  checkoutSessionId = null,
   onCheckoutStatusHandled,
 }: BillingScreenProps) {
   const initialCheckoutStatusRef = useRef(checkoutStatus);
-  const shouldConfirm = initialCheckoutStatusRef.current === "success";
+  const initialSessionIdRef = useRef(checkoutSessionId);
+  const shouldConfirm =
+    initialCheckoutStatusRef.current === "success" &&
+    initialSessionIdRef.current !== null;
+  const refreshedAfterConfirmation = useRef(false);
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [category, setCategory] = useState<BillingCategory>("all");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [openingPack, setOpeningPack] = useState<CreditPack | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState>(null);
 
-  function refresh() {
+  function refresh(nextCategory: BillingCategory = category) {
     setState({ kind: "loading" });
     setCheckoutError(null);
-    Promise.all([getMe(), getBillingBalance().catch(() => null)])
-      .then(([me, balance]) => setState({ kind: "ready", me, balance }))
+    setHistoryError(null);
+    getMe()
+      .then(async (me) => {
+        if (me === null) {
+          setState({ kind: "ready", me, balance: null, history: null });
+          return;
+        }
+        const [balance, history] = await Promise.all([
+          getBillingBalance(),
+          getBillingHistory({ category: nextCategory }),
+        ]);
+        setState({ kind: "ready", me, balance, history });
+      })
       .catch((error: unknown) =>
         setState({
           kind: "error",
@@ -85,15 +129,58 @@ export function BillingScreen({
     }
   }
 
+  async function changeCategory(nextCategory: BillingCategory) {
+    setCategory(nextCategory);
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const history = await getBillingHistory({ category: nextCategory });
+      setState((current) =>
+        current.kind === "ready" ? { ...current, history } : current,
+      );
+    } catch (error) {
+      setHistoryError(errMessage(error, "failed to load billing history"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function loadMore() {
+    if (state.kind !== "ready" || !state.history?.next_cursor) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await getBillingHistory({
+        before: state.history.next_cursor,
+        category,
+      });
+      setState((current) => {
+        if (current.kind !== "ready" || current.history === null)
+          return current;
+        return {
+          ...current,
+          history: {
+            ...page,
+            entries: [...current.history.entries, ...page.entries],
+          },
+        };
+      });
+    } catch (error) {
+      setHistoryError(errMessage(error, "failed to load billing history"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
-    refresh();
+    refresh("all");
     if (initialCheckoutStatusRef.current !== null) onCheckoutStatusHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once intent
   }, []);
 
   const confirmPoll = usePoll(
-    () => getBillingBalance(),
-    () => true,
+    () => getBillingConfirm(initialSessionIdRef.current!),
+    (result) => result.applied,
     {
       enabled: shouldConfirm,
       maxMs: 20_000,
@@ -104,31 +191,30 @@ export function BillingScreen({
 
   useEffect(() => {
     if (!shouldConfirm) return;
-    if (confirmPoll.result) {
-      getMe().then((me) =>
-        setState({ kind: "ready", me, balance: confirmPoll.result }),
-      );
+    if (confirmPoll.result?.applied && !refreshedAfterConfirmation.current) {
+      refreshedAfterConfirmation.current = true;
+      setConfirmation(null);
+      refresh(category);
+      return;
     }
-    if (confirmPoll.terminal) setConfirmation(null);
-    else if (confirmPoll.timedOut) setConfirmation({ kind: "timeout" });
+    if (confirmPoll.timedOut) setConfirmation({ kind: "timeout" });
     else setConfirmation({ kind: "confirming" });
-  }, [
-    confirmPoll.result,
-    confirmPoll.terminal,
-    confirmPoll.timedOut,
-    shouldConfirm,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only on poll transitions
+  }, [confirmPoll.result, confirmPoll.timedOut, shouldConfirm]);
 
   return (
-    <section className="mt-6 space-y-5">
+    <section className="mt-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Minutes & billing</h2>
+          <h1 className="text-xl font-semibold">Billing & account</h1>
           <p className="text-sm text-ink-muted">
-            Monthly free minutes plus non-expiring packs.
+            Manage your account, minutes, and payment history.
           </p>
         </div>
-        <RefreshButton onClick={refresh} loading={state.kind === "loading"} />
+        <RefreshButton
+          onClick={() => refresh()}
+          loading={state.kind === "loading"}
+        />
       </div>
 
       {state.kind === "error" && <ErrorBanner>{state.message}</ErrorBanner>}
@@ -148,8 +234,8 @@ export function BillingScreen({
         <p className="text-sm text-ink-muted">Loading…</p>
       )}
       {state.kind === "ready" && state.me === null && (
-        <section className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="font-semibold">Sign in to buy minutes</h3>
+        <Card className="p-5">
+          <h2 className="font-semibold">Sign in to manage billing</h2>
           <button
             type="button"
             onClick={() => (window.location.href = googleLoginUrl())}
@@ -157,34 +243,26 @@ export function BillingScreen({
           >
             Continue with Google
           </button>
-        </section>
+        </Card>
       )}
 
-      {state.kind === "ready" &&
-        state.me !== null &&
-        state.balance !== null && (
-          <>
-            <section className="rounded-lg border border-border bg-surface p-5">
-              <p className="text-sm text-ink-muted">Available now</p>
-              <p className="mt-1 text-4xl font-semibold gradient-text">
-                {state.balance.available_minutes} min
+      {state.kind === "ready" && state.me && state.balance && state.history && (
+        <>
+          <AccountCard me={state.me} />
+          <UsageCard balance={state.balance} />
+
+          <section aria-labelledby="buy-minutes-heading">
+            <div className="mb-3">
+              <h2 id="buy-minutes-heading" className="text-lg font-semibold">
+                Buy minutes
+              </h2>
+              <p className="text-sm text-ink-muted">
+                One-time packs that never expire.
               </p>
-              <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                <div className="rounded-md bg-surface-subtle p-3">
-                  Free this month: {state.balance.free_remaining} /{" "}
-                  {state.balance.free_limit} min
-                </div>
-                <div className="rounded-md bg-surface-subtle p-3">
-                  Purchased balance: {state.balance.purchased_minutes} min
-                </div>
-              </div>
-            </section>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               {packs.map((pack) => (
-                <section
-                  key={pack.id}
-                  className={`rounded-lg border bg-surface p-5 ${pack.id === "large" ? "border-accent" : "border-border"}`}
-                >
+                <Card key={pack.id} className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h3 className="font-semibold">{pack.name}</h3>
@@ -211,15 +289,234 @@ export function BillingScreen({
                       ? "Opening…"
                       : `Buy ${pack.minutes} min`}
                   </button>
-                </section>
+                </Card>
               ))}
             </div>
-            <p className="text-center text-xs text-ink-muted">
-              One-time payment · no subscription · purchased minutes do not
-              expire
-            </p>
-          </>
-        )}
+          </section>
+
+          <HistoryTable
+            history={state.history}
+            category={category}
+            loading={historyLoading}
+            error={historyError}
+            onCategoryChange={(next) => void changeCategory(next)}
+            onLoadMore={() => void loadMore()}
+          />
+        </>
+      )}
     </section>
   );
+}
+
+function AccountCard({ me }: { me: Me }) {
+  const memberSince = new Date(me.created_at).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+            Account
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <h2 className="font-semibold">{me.email}</h2>
+            <TierBadge tier={me.tier} />
+          </div>
+          <p className="mt-2 text-sm text-ink-muted">
+            Member since {memberSince}
+          </p>
+        </div>
+        <p className="font-mono text-xs text-ink-muted" title={me.id}>
+          Account {me.id.slice(0, 8)}
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function UsageCard({ balance }: { balance: BillingBalance }) {
+  return (
+    <Card className="p-5">
+      <p className="text-sm text-ink-muted">Available now</p>
+      <p className="mt-1 text-4xl font-semibold gradient-text">
+        {balance.available_minutes} min
+      </p>
+      <div className="mt-5 rounded-lg bg-surface-subtle p-4">
+        <QuotaBar used={balance.free_used} limit={balance.free_limit} />
+      </div>
+      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div className="rounded-lg bg-surface-subtle p-3">
+          <span className="block text-xs text-ink-muted">Free this month</span>
+          {balance.free_remaining} / {balance.free_limit} min
+        </div>
+        <div className="rounded-lg bg-surface-subtle p-3">
+          <span className="block text-xs text-ink-muted">
+            Purchased balance
+          </span>
+          {balance.purchased_minutes} min
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function HistoryTable({
+  history,
+  category,
+  loading,
+  error,
+  onCategoryChange,
+  onLoadMore,
+}: {
+  history: BillingHistoryPage;
+  category: BillingCategory;
+  loading: boolean;
+  error: string | null;
+  onCategoryChange: (category: BillingCategory) => void;
+  onLoadMore: () => void;
+}) {
+  return (
+    <section aria-labelledby="billing-history-heading">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="billing-history-heading" className="text-lg font-semibold">
+            Billing history
+          </h2>
+          <p className="text-sm text-ink-muted">
+            Purchases, usage, and adjustments.
+          </p>
+        </div>
+        <label className="text-xs text-ink-muted">
+          <span className="mr-2">Type</span>
+          <select
+            aria-label="Transaction type"
+            value={category}
+            onChange={(event) =>
+              onCategoryChange(event.target.value as BillingCategory)
+            }
+            disabled={loading}
+            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink"
+          >
+            {historyFilters.map((filter) => (
+              <option key={filter.value} value={filter.value}>
+                {filter.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <Card className="overflow-hidden">
+        {history.entries.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-ink-muted">
+            No transactions yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-border bg-surface-subtle text-xs text-ink-muted">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 font-medium">Description</th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Minutes (±)
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">Amount</th>
+                  <th className="px-4 py-3 text-right font-medium">Receipt</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-subtle">
+                {history.entries.map((entry) => (
+                  <HistoryRow key={entry.id} entry={entry} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {history.has_more && (
+          <div className="border-t border-border px-4 py-3 text-center">
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={loading}
+              className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-subtle disabled:opacity-60"
+            >
+              {loading ? "Loading…" : "Load more"}
+            </button>
+          </div>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+function HistoryRow({ entry }: { entry: BillingTransaction }) {
+  const minutes = entry.minutes_delta;
+  const amount =
+    entry.amount_cents !== null && entry.currency
+      ? formatCurrency(entry.amount_cents, entry.currency)
+      : "—";
+  return (
+    <tr>
+      <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
+        {formatLedgerDate(entry.created_at)}
+      </td>
+      <td className="px-4 py-3">
+        <span className="rounded-full bg-surface-subtle px-2 py-1 text-xs text-ink-muted">
+          {entryTypeLabel(entry.entry_type)}
+        </span>
+      </td>
+      <td className="max-w-xs px-4 py-3">{entryDescription(entry)}</td>
+      <td
+        className={`whitespace-nowrap px-4 py-3 text-right font-mono ${minutes > 0 ? "text-emerald-600" : "text-ink"}`}
+      >
+        {formatMinutes(minutes)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-right">{amount}</td>
+      <td className="whitespace-nowrap px-4 py-3 text-right">
+        {entry.receipt_url ? (
+          <a
+            href={entry.receipt_url}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-accent hover:underline"
+          >
+            View receipt
+          </a>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function entryTypeLabel(entryType: BillingTransaction["entry_type"]): string {
+  if (entryType === "job_debit") return "Usage";
+  if (entryType === "purchase") return "Purchase";
+  if (entryType === "dispute_reinstated") return "Reinstated";
+  return entryType[0].toUpperCase() + entryType.slice(1);
+}
+
+function entryDescription(entry: BillingTransaction): string {
+  if (entry.entry_type === "job_debit") {
+    return `Translation — ${entry.usage_minutes} min, ${Math.abs(entry.minutes_delta)} charged to credit`;
+  }
+  if (entry.reason) return entry.reason;
+  if (entry.entry_type === "purchase") {
+    return `${entry.pack ?? "Credit"} minute pack`;
+  }
+  if (entry.entry_type === "dispute_reinstated")
+    return "Dispute funds reinstated";
+  return entryTypeLabel(entry.entry_type);
+}
+
+function formatMinutes(minutes: number): string {
+  if (minutes > 0) return `+${minutes} min`;
+  if (minutes < 0) return `−${Math.abs(minutes)} min`;
+  return "0 min";
 }

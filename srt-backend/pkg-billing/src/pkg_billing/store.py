@@ -9,13 +9,43 @@ Unit tests inject their own fakes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from pkg_auth.api import User
 
-__all__ = ["BillingStore", "UserId", "get_billing_store", "set_billing_store"]
+__all__ = [
+    "BillingStore",
+    "LedgerCursor",
+    "LedgerEntry",
+    "UserId",
+    "get_billing_store",
+    "set_billing_store",
+]
 
 UserId = str | int
+
+
+@dataclass(frozen=True)
+class LedgerCursor:
+    created_at: datetime
+    id: str
+
+
+class LedgerEntry(Protocol):
+    id: str
+    created_at: datetime
+    entry_type: str
+    minutes_delta: int
+    usage_minutes: int
+    balance_after: int | None
+    pack: str | None
+    amount_cents: int | None
+    currency: str | None
+    reason: str | None
+    receipt_url: str | None
 
 
 class BillingStore(Protocol):
@@ -73,6 +103,18 @@ class BillingStore(Protocol):
         reinstated: bool,
         created_at: str,
     ) -> bool: ...
+
+    async def list_ledger(
+        self,
+        user_id: UserId,
+        limit: int,
+        cursor: LedgerCursor | None = None,
+        entry_types: frozenset[str] | None = None,
+    ) -> Sequence[LedgerEntry]: ...
+
+    async def set_receipt_url(self, session_id: str, url: str) -> None: ...
+
+    async def has_purchase(self, user_id: UserId, session_id: str) -> bool: ...
 
     async def balance(self, user_id: UserId, free_limit: int) -> dict[str, int]: ...
 

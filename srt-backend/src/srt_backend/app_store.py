@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from pkg_auth.api import UserStore
 from pkg_auth.models import Tier
-from pkg_billing.api import BillingStore, UserId
+from pkg_billing.api import BillingStore, LedgerCursor, UserId
 from pkg_job_orch.api import (
     DEV_USER_ID,
     CreditLedgerEntry,
@@ -24,8 +25,9 @@ from pkg_job_orch.api import (
     balance_snapshot,
     session_scope,
 )
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 __all__ = ["AppStore"]
 
@@ -133,6 +135,7 @@ class AppStore(UserStore, BillingStore):
                         payment_intent_id=payment_intent_id,
                         charge_id=charge_id,
                         reason="Stripe Checkout purchase",
+                        created_at=datetime.fromisoformat(paid_at),
                     )
                 )
                 user.purchased_minutes += minutes
@@ -180,7 +183,6 @@ class AppStore(UserStore, BillingStore):
         reason: str | None,
         created_at: str,
     ) -> bool:
-        del created_at
         return self._apply_reversal(
             event_id=event_id,
             key=f"refund:{refund_id}",
@@ -189,6 +191,7 @@ class AppStore(UserStore, BillingStore):
             payment_intent_id=payment_intent_id,
             charge_id=charge_id,
             reason=reason,
+            created_at=datetime.fromisoformat(created_at),
         )
 
     async def apply_dispute_once(
@@ -202,7 +205,7 @@ class AppStore(UserStore, BillingStore):
         reinstated: bool,
         created_at: str,
     ) -> bool:
-        del created_at
+        event_created_at = datetime.fromisoformat(created_at)
         if not reinstated:
             return self._apply_reversal(
                 event_id=event_id,
@@ -212,6 +215,7 @@ class AppStore(UserStore, BillingStore):
                 payment_intent_id=payment_intent_id,
                 charge_id=charge_id,
                 reason=reason,
+                created_at=event_created_at,
             )
         try:
             with session_scope(self._database_url) as session:
@@ -238,6 +242,7 @@ class AppStore(UserStore, BillingStore):
                         payment_intent_id=original.payment_intent_id,
                         charge_id=original.charge_id,
                         reason=reason or "dispute funds reinstated",
+                        created_at=event_created_at,
                     )
                 )
                 user.purchased_minutes += minutes
@@ -256,6 +261,7 @@ class AppStore(UserStore, BillingStore):
         payment_intent_id: str | None,
         charge_id: str | None,
         reason: str | None,
+        created_at: datetime,
     ) -> bool:
         import math
 
@@ -299,6 +305,7 @@ class AppStore(UserStore, BillingStore):
                         payment_intent_id=purchase.payment_intent_id,
                         charge_id=purchase.charge_id,
                         reason=reason,
+                        created_at=created_at,
                     )
                 )
                 user.purchased_minutes -= minutes
@@ -332,6 +339,61 @@ class AppStore(UserStore, BillingStore):
                 "purchased_minutes": value.purchased_minutes,
                 "available_minutes": value.available_minutes,
             }
+
+    async def list_ledger(
+        self,
+        user_id: UserId,
+        limit: int,
+        cursor: LedgerCursor | None = None,
+        entry_types: frozenset[str] | None = None,
+    ) -> list[CreditLedgerEntry]:
+        with session_scope(self._database_url) as session:
+            stmt = select(CreditLedgerEntry).where(
+                CreditLedgerEntry.user_id == str(user_id),
+                ~and_(
+                    col(CreditLedgerEntry.entry_type) == "job_debit",
+                    col(CreditLedgerEntry.minutes_delta) == 0,
+                ),
+            )
+            if entry_types is not None:
+                stmt = stmt.where(col(CreditLedgerEntry.entry_type).in_(entry_types))
+            if cursor is not None:
+                stmt = stmt.where(
+                    or_(
+                        col(CreditLedgerEntry.created_at) < cursor.created_at,
+                        and_(
+                            col(CreditLedgerEntry.created_at) == cursor.created_at,
+                            col(CreditLedgerEntry.id) < cursor.id,
+                        ),
+                    )
+                )
+            stmt = stmt.order_by(
+                col(CreditLedgerEntry.created_at).desc(),
+                col(CreditLedgerEntry.id).desc(),
+            ).limit(limit + 1)
+            return list(session.exec(stmt).all())
+
+    async def set_receipt_url(self, session_id: str, url: str) -> None:
+        with session_scope(self._database_url) as session:
+            row = session.exec(
+                select(CreditLedgerEntry).where(CreditLedgerEntry.session_id == session_id)
+            ).first()
+            if row is not None:
+                row.receipt_url = url
+                session.add(row)
+
+    async def has_purchase(self, user_id: UserId, session_id: str) -> bool:
+        with session_scope(self._database_url) as session:
+            return (
+                session.exec(
+                    select(CreditLedgerEntry.id).where(
+                        CreditLedgerEntry.user_id == str(user_id),
+                        CreditLedgerEntry.session_id == session_id,
+                        CreditLedgerEntry.entry_type == "purchase",
+                    )
+                ).first()
+                is not None
+            )
 
     async def record_checkout_started(self, user_id: UserId, pack: str) -> None:
         with session_scope(self._database_url) as session:

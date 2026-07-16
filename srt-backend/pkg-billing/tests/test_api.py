@@ -5,8 +5,8 @@ import hmac
 import importlib
 import json
 import time
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Callable, Iterator
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -26,6 +26,11 @@ from pkg_billing.api import (
     __all__ as public_names,
 )
 
+fetch_receipt_url_sync = cast(
+    Callable[..., str | None],
+    importlib.import_module("pkg_billing.api")._fetch_receipt_url_sync,
+)
+
 
 class _FakeBillingStore:
     """In-process BillingStore for unit tests (no DB)."""
@@ -41,6 +46,7 @@ class _FakeBillingStore:
         self._usage = dict(usage or {})
         self.purchase_records: list[dict[str, str | int | None]] = []
         self.checkout_records: list[dict[str, str | int]] = []
+        self.receipt_records: dict[str, str] = {}
 
     async def get_by_id(self, user_id: str | int) -> User | None:
         return self._users_by_id.get(str(user_id))
@@ -146,6 +152,25 @@ class _FakeBillingStore:
             "available_minutes": free_limit,
         }
 
+    async def list_ledger(
+        self,
+        user_id: str | int,
+        limit: int,
+        cursor: object | None = None,
+        entry_types: frozenset[str] | None = None,
+    ) -> list[Any]:
+        del user_id, limit, cursor, entry_types
+        return []
+
+    async def set_receipt_url(self, session_id: str, url: str) -> None:
+        self.receipt_records[session_id] = url
+
+    async def has_purchase(self, user_id: str | int, session_id: str) -> bool:
+        return any(
+            record["user_id"] == user_id and record["session_id"] == session_id
+            for record in self.purchase_records
+        )
+
     async def record_checkout_started(self, user_id: str | int, pack: str) -> None:
         self.checkout_records.append({"user_id": user_id, "pack": pack})
 
@@ -168,6 +193,11 @@ def billing_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
     monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
+
+    def no_receipt(**_kwargs: object) -> str | None:
+        return None
+
+    monkeypatch.setattr("pkg_billing.api._fetch_receipt_url_sync", no_receipt)
     reset_settings_cache()
     yield
     reset_settings_cache()
@@ -284,7 +314,9 @@ def test_create_checkout_session_sends_signed_reference(
             "minutes": 100,
             "client_reference_id": _client_reference_id("42", "ref-secret"),
             "customer_email": "user@example.com",
-            "success_url": "http://localhost:5730/?checkout=success",
+            "success_url": (
+                "http://localhost:5730/?checkout=success&session_id={CHECKOUT_SESSION_ID}"
+            ),
             "cancel_url": "http://localhost:5730/?checkout=cancel",
         }
     ]
@@ -469,6 +501,99 @@ def test_webhook_is_idempotent_by_session_id() -> None:
     assert first == 200
     assert second == 200
     assert [record["event_id"] for record in store.purchase_records] == ["evt_once"]
+
+
+def test_receipt_enrichment_failure_does_not_undo_purchase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_receipt(**_kwargs: object) -> str | None:
+        raise RuntimeError("stripe unavailable")
+
+    monkeypatch.setattr("pkg_billing.api._fetch_receipt_url_sync", fail_receipt)
+    user = User(id="7", google_sub="sub", email="user@example.com", tier="free")
+    store = _FakeBillingStore([user])
+    client = _client(store)
+    event = _event(
+        event_id="evt_receipt_failure",
+        session=_paid_session(
+            "cs_receipt_failure",
+            client_reference_id=_client_reference_id(user.id, "ref-secret"),
+        ),
+    )
+
+    assert _post_webhook(client, event) == 200
+    assert [row["session_id"] for row in store.purchase_records] == ["cs_receipt_failure"]
+    assert store.receipt_records == {}
+
+
+def test_webhook_persists_receipt_by_checkout_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def receipt(**_kwargs: object) -> str | None:
+        return "https://pay.example/receipt"
+
+    monkeypatch.setattr("pkg_billing.api._fetch_receipt_url_sync", receipt)
+    user = User(id="7", google_sub="sub", email="user@example.com", tier="free")
+    store = _FakeBillingStore([user])
+    client = _client(store)
+    event = _event(
+        event_id="evt_receipt",
+        session=_paid_session(
+            "cs_receipt",
+            client_reference_id=_client_reference_id(user.id, "ref-secret"),
+        ),
+    )
+
+    assert _post_webhook(client, event) == 200
+    assert store.receipt_records == {"cs_receipt": "https://pay.example/receipt"}
+
+
+def test_receipt_lookup_uses_expanded_charge_and_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import stripe
+
+    payment_calls: list[tuple[str, dict[str, object]]] = []
+
+    def retrieve_payment(payment_intent_id: str, **kwargs: object) -> dict[str, object]:
+        payment_calls.append((payment_intent_id, kwargs))
+        return {"latest_charge": {"receipt_url": "https://pay.example/expanded"}}
+
+    def unexpected_charge(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("expanded charge must not be retrieved again")
+
+    monkeypatch.setattr(stripe.PaymentIntent, "retrieve", retrieve_payment)
+    monkeypatch.setattr(stripe.Charge, "retrieve", unexpected_charge)
+
+    assert (
+        fetch_receipt_url_sync(payment_intent_id="pi_1", api_key="sk_test_123")
+        == "https://pay.example/expanded"
+    )
+    assert payment_calls == [("pi_1", {"api_key": "sk_test_123", "expand": ["latest_charge"]})]
+
+
+def test_receipt_lookup_retrieves_bare_charge_id_with_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import stripe
+
+    charge_calls: list[tuple[str, dict[str, object]]] = []
+
+    def retrieve_payment(_payment_intent_id: str, **_kwargs: object) -> dict[str, object]:
+        return {"latest_charge": "ch_1"}
+
+    def retrieve_charge(charge_id: str, **kwargs: object) -> dict[str, object]:
+        charge_calls.append((charge_id, kwargs))
+        return {"receipt_url": "https://pay.example/bare"}
+
+    monkeypatch.setattr(stripe.PaymentIntent, "retrieve", retrieve_payment)
+    monkeypatch.setattr(stripe.Charge, "retrieve", retrieve_charge)
+
+    assert (
+        fetch_receipt_url_sync(payment_intent_id="pi_1", api_key="sk_test_123")
+        == "https://pay.example/bare"
+    )
+    assert charge_calls == [("ch_1", {"api_key": "sk_test_123"})]
 
 
 def _client(store: _FakeBillingStore) -> TestClient:

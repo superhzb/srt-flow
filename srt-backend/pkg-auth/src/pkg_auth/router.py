@@ -30,9 +30,11 @@ async def me(
     settings: Annotated[AuthSettings, Depends(load_settings)],
 ) -> dict[str, str | bool]:
     return {
+        "id": user.id,
         "email": user.email,
         "tier": user.tier,
         "is_admin": is_admin(user, settings),
+        "created_at": user.created_at.isoformat(),
     }
 
 

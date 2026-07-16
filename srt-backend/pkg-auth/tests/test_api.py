@@ -81,11 +81,12 @@ def test_me_dev_mode_returns_seeded_user(monkeypatch: pytest.MonkeyPatch) -> Non
         resp = client.get("/api/auth/me")
 
     assert resp.status_code == 200
-    assert resp.json() == {
-        "email": "dev@example.test",
-        "tier": "paid",
-        "is_admin": True,
-    }
+    assert isinstance(resp.json()["id"], str)
+    assert resp.json()["id"]
+    assert resp.json()["email"] == "dev@example.test"
+    assert resp.json()["tier"] == "paid"
+    assert resp.json()["is_admin"] is True
+    assert isinstance(resp.json()["created_at"], str)
 
 
 def test_paid_check_allows_paid_dev_user(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -25,10 +25,10 @@ def test_auth_routes_reset_legacy_paid_user_to_free(
         paid = client.get("/api/auth/paid-check")
 
     assert me.status_code == 200
-    assert me.json() == {
-        "email": "dev@example.test",
-        "tier": "free",
-        "is_admin": True,
-    }
+    assert me.json()["id"] == "dev-user"
+    assert me.json()["email"] == "dev@example.test"
+    assert me.json()["tier"] == "free"
+    assert me.json()["is_admin"] is True
+    assert isinstance(me.json()["created_at"], str)
     assert paid.status_code == 402
     assert paid.json() == {"detail": "Upgrade required"}

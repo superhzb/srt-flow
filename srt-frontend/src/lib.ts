@@ -135,3 +135,24 @@ export async function apiFetch<T>(
   if (!resp.ok) throw await readError(resp, `${fallback} (${resp.status})`);
   return (await resp.json()) as T;
 }
+
+export function formatCurrency(cents: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(cents / 100);
+}
+
+export function formatLedgerDate(value: string): string {
+  const date = new Date(value);
+  const elapsed = Date.now() - date.getTime();
+  if (elapsed >= 0 && elapsed < 60_000) return "Just now";
+  if (elapsed >= 0 && elapsed < 3_600_000) {
+    return `${Math.floor(elapsed / 60_000)}m ago`;
+  }
+  if (elapsed >= 0 && elapsed < 86_400_000) {
+    return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  }
+  if (elapsed >= 0 && elapsed < 172_800_000) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
