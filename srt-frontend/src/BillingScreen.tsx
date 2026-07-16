@@ -42,6 +42,7 @@ interface BillingScreenProps {
   checkoutStatus?: CheckoutStatus;
   checkoutSessionId?: string | null;
   onCheckoutStatusHandled?: () => void;
+  onLogout?: () => void;
 }
 
 const packs: Array<{
@@ -68,9 +69,8 @@ const packs: Array<{
 ];
 
 const historyFilters: Array<{ value: BillingCategory; label: string }> = [
-  { value: "all", label: "All" },
   { value: "purchases", label: "Purchases" },
-  { value: "usage", label: "Usage" },
+  { value: "all", label: "All" },
   { value: "adjustments", label: "Adjustments" },
 ];
 
@@ -78,6 +78,7 @@ export function BillingScreen({
   checkoutStatus = null,
   checkoutSessionId = null,
   onCheckoutStatusHandled,
+  onLogout,
 }: BillingScreenProps) {
   const initialCheckoutStatusRef = useRef(checkoutStatus);
   const initialSessionIdRef = useRef(checkoutSessionId);
@@ -86,7 +87,7 @@ export function BillingScreen({
     initialSessionIdRef.current !== null;
   const refreshedAfterConfirmation = useRef(false);
   const [state, setState] = useState<LoadState>({ kind: "loading" });
-  const [category, setCategory] = useState<BillingCategory>("all");
+  const [category, setCategory] = useState<BillingCategory>("purchases");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [openingPack, setOpeningPack] = useState<CreditPack | null>(null);
@@ -173,7 +174,7 @@ export function BillingScreen({
   }
 
   useEffect(() => {
-    refresh("all");
+    refresh("purchases");
     if (initialCheckoutStatusRef.current !== null) onCheckoutStatusHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once intent
   }, []);
@@ -248,7 +249,7 @@ export function BillingScreen({
 
       {state.kind === "ready" && state.me && state.balance && state.history && (
         <>
-          <AccountCard me={state.me} />
+          <AccountCard me={state.me} balance={state.balance} onLogout={onLogout} />
           <UsageCard balance={state.balance} />
 
           <section aria-labelledby="buy-minutes-heading">
@@ -308,12 +309,24 @@ export function BillingScreen({
   );
 }
 
-function AccountCard({ me }: { me: Me }) {
+function AccountCard({
+  me,
+  balance,
+  onLogout,
+}: {
+  me: Me;
+  balance: BillingBalance;
+  onLogout?: () => void;
+}) {
   const memberSince = new Date(me.created_at).toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+  // Effective tier reflects purchased credit: "paid" while credit remains,
+  // reverts to the account tier once purchased minutes are exhausted.
+  const effectiveTier: "free" | "paid" =
+    balance.purchased_minutes > 0 ? "paid" : me.tier;
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -323,21 +336,36 @@ function AccountCard({ me }: { me: Me }) {
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h2 className="font-semibold">{me.email}</h2>
-            <TierBadge tier={me.tier} />
+            <TierBadge tier={effectiveTier} />
           </div>
           <p className="mt-2 text-sm text-ink-muted">
             Member since {memberSince}
           </p>
         </div>
-        <p className="font-mono text-xs text-ink-muted" title={me.id}>
-          Account {me.id.slice(0, 8)}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-mono text-xs text-ink-muted" title={me.id}>
+            Account {me.id.slice(0, 8)}
+          </p>
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
+            >
+              Logout
+            </button>
+          )}
+        </div>
       </div>
     </Card>
   );
 }
 
 function UsageCard({ balance }: { balance: BillingBalance }) {
+  // Total credit pool = monthly free allowance + purchased minutes. The bar
+  // shows how much of that pool remains (available), not just the free bucket.
+  const total = balance.free_limit + balance.purchased_minutes;
+  const used = Math.max(0, total - balance.available_minutes);
   return (
     <Card className="p-5">
       <p className="text-sm text-ink-muted">Available now</p>
@@ -345,7 +373,12 @@ function UsageCard({ balance }: { balance: BillingBalance }) {
         {balance.available_minutes} min
       </p>
       <div className="mt-5 rounded-lg bg-surface-subtle p-4">
-        <QuotaBar used={balance.free_used} limit={balance.free_limit} />
+        <QuotaBar
+          used={used}
+          limit={total}
+          label="Credit"
+          ariaLabel="Total credit remaining"
+        />
       </div>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div className="rounded-lg bg-surface-subtle p-3">
@@ -386,7 +419,7 @@ function HistoryTable({
             Billing history
           </h2>
           <p className="text-sm text-ink-muted">
-            Purchases, usage, and adjustments.
+            Purchases and adjustments. Usage lives in History.
           </p>
         </div>
         <label className="text-xs text-ink-muted">

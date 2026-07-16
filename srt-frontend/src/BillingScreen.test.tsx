@@ -103,9 +103,9 @@ describe("BillingScreen", () => {
     expect(screen.getByText("115 min")).toBeInTheDocument();
     expect(
       screen.getByRole("progressbar", {
-        name: "Monthly free credits remaining",
+        name: "Total credit remaining",
       }),
-    ).toHaveAttribute("aria-valuenow", "15");
+    ).toHaveAttribute("aria-valuenow", "115");
     expect(screen.getByText("−3 min")).toBeInTheDocument();
     expect(
       screen.getByText("Translation — 7 min, 3 charged to credit"),
@@ -147,13 +147,13 @@ describe("BillingScreen", () => {
     expect(await screen.findByText("Older purchase")).toBeInTheDocument();
     expect(getBillingHistory).toHaveBeenNthCalledWith(2, {
       before: "cursor-1",
-      category: "all",
+      category: "purchases",
     });
 
     fireEvent.change(
       screen.getByRole("combobox", { name: "Transaction type" }),
       {
-        target: { value: "usage" },
+        target: { value: "all" },
       },
     );
     expect(
@@ -161,7 +161,7 @@ describe("BillingScreen", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("First purchase")).not.toBeInTheDocument();
     expect(screen.queryByText("Older purchase")).not.toBeInTheDocument();
-    expect(getBillingHistory).toHaveBeenNthCalledWith(3, { category: "usage" });
+    expect(getBillingHistory).toHaveBeenNthCalledWith(3, { category: "all" });
   });
 
   it("polls the returned checkout session and refreshes balance and history", async () => {

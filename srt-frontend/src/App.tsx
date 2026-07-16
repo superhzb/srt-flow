@@ -604,6 +604,7 @@ export default function App() {
                 setCheckoutStatus(null);
                 setCheckoutSessionId(null);
               }}
+              onLogout={() => void handleLogout()}
             />
           )}
           {tab === "translate" && (

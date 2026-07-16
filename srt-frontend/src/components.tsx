@@ -121,8 +121,18 @@ export function RefreshButton({
   );
 }
 
-/** Shared monthly credit usage meter used by History and Billing. */
-export function QuotaBar({ used, limit }: { used: number; limit: number }) {
+/** Shared credit usage meter. Used by History (free monthly) and Billing (total). */
+export function QuotaBar({
+  used,
+  limit,
+  label = "Free",
+  ariaLabel = "Monthly free credits remaining",
+}: {
+  used: number;
+  limit: number;
+  label?: string;
+  ariaLabel?: string;
+}) {
   const remaining = Math.min(limit, Math.max(0, limit - used));
   const percent =
     limit > 0 ? Math.min(100, Math.max(0, (remaining / limit) * 100)) : 0;
@@ -130,13 +140,13 @@ export function QuotaBar({ used, limit }: { used: number; limit: number }) {
     <div>
       <div className="mb-1.5 flex justify-between font-mono text-[10.5px] text-faint">
         <span>
-          Free · {remaining}/{limit} min
+          {label} · {remaining}/{limit} min
         </span>
         <span>{Math.round(percent)}%</span>
       </div>
       <div
         role="progressbar"
-        aria-label="Monthly free credits remaining"
+        aria-label={ariaLabel}
         aria-valuemin={0}
         aria-valuemax={limit}
         aria-valuenow={remaining}
