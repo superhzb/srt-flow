@@ -74,6 +74,7 @@ export interface JobStatusResponse {
   error?: string;
   targets?: TargetProgress[];
   eta_seconds?: number | null;
+  source_minutes?: number;
 }
 
 export interface JobSummary {

@@ -248,7 +248,7 @@ export function StackedOutput({
               {historyHeader.filename}
             </h2>
             <p className="mt-1 font-mono text-[10.5px] text-faint">
-              {historyHeader.meta} · {request.length} languages
+              {historyHeader.meta}
             </p>
           </div>
           {request.length && downloadUrl ? (

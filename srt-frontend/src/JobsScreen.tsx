@@ -294,7 +294,15 @@ function JobReview({
       </div>
     );
 
-  const meta = `${formatLedgerDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${job.tgt_langs.length} ${job.tgt_langs.length === 1 ? "language" : "languages"}`;
+  const displayTargets = job.tgt_langs.filter(
+    (target) => target !== job.src_lang,
+  );
+  const targetChips = displayTargets
+    .map((lang) => `${langMeta(lang).flag} ${lang.toUpperCase()}`)
+    .join(" ");
+  const billedMin =
+    (job.source_minutes ?? 0) * Math.max(1, displayTargets.length);
+  const meta = `${formatLedgerDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${targetChips} · ${billedMin}min`;
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_14px_34px_-26px_rgba(20,24,31,.2)] lg:h-full lg:min-h-0">
       {job.status === "done" ? (
@@ -302,9 +310,7 @@ function JobReview({
           jobId={jobId}
           sourceLang={job.src_lang}
           carriedLangs={job.carried_langs ?? []}
-          targetLangs={job.tgt_langs.filter(
-            (target) => target !== job.src_lang,
-          )}
+          targetLangs={displayTargets}
           historyHeader={{ filename: job.filename ?? job.id.slice(0, 8), meta }}
           historySidebar={historySidebar}
         />
