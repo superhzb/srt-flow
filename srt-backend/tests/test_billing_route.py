@@ -152,34 +152,6 @@ def test_processed_event_id_is_unique(
                 session.commit()
 
 
-def test_billing_checkout_reports_placeholder_payment_link(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_env: dict[str, str],
-) -> None:
-    del temp_env
-
-    monkeypatch.setenv("ENV", "dev")
-    monkeypatch.setenv("AUTH_MODE", "dev")
-    monkeypatch.setenv("DEV_USER_EMAIL", "dev@example.test")
-    monkeypatch.setenv("DEV_USER_TIER", "free")
-    monkeypatch.setenv("BILLING_PAYMENT_LINK", "https://buy.stripe.com/test_replace_me")
-    monkeypatch.setenv("BILLING_REF_SECRET", "ref-secret")
-    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
-    monkeypatch.setenv("STRIPE_SECRET", "")
-    monkeypatch.setenv("STRIPE_PRICE_ID", "")
-    monkeypatch.setenv("APP_BASE_URL", "")
-
-    from srt_backend.app import api
-
-    with TestClient(api) as client:
-        checkout = client.post("/api/billing/checkout")
-
-    assert checkout.status_code == 503
-    assert checkout.json() == {
-        "detail": "BILLING_PAYMENT_LINK must be set to a real Stripe Payment Link"
-    }
-
-
 def test_billing_checkout_uses_checkout_session_when_configured(
     monkeypatch: pytest.MonkeyPatch,
     temp_env: dict[str, str],
@@ -190,7 +162,6 @@ def test_billing_checkout_uses_checkout_session_when_configured(
     monkeypatch.setenv("AUTH_MODE", "dev")
     monkeypatch.setenv("DEV_USER_EMAIL", "dev@example.test")
     monkeypatch.setenv("DEV_USER_TIER", "free")
-    monkeypatch.delenv("BILLING_PAYMENT_LINK", raising=False)
     monkeypatch.setenv("BILLING_REF_SECRET", "ref-secret")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
     monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
@@ -550,7 +521,6 @@ def _configure_billing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_MODE", "dev")
     monkeypatch.setenv("DEV_USER_EMAIL", "dev@example.test")
     monkeypatch.setenv("DEV_USER_TIER", "free")
-    monkeypatch.setenv("BILLING_PAYMENT_LINK", "https://buy.stripe.com/test_abc")
     monkeypatch.setenv("BILLING_REF_SECRET", "ref-secret")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
     monkeypatch.setenv("FREE_TIER_MONTHLY_LIMIT", "2")

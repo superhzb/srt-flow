@@ -27,7 +27,7 @@ from pkg_billing.config import (
     load_settings,
     reset_settings_cache,
 )
-from pkg_billing.signing import append_query, sign_ref, valid_stripe_signature, verify_ref
+from pkg_billing.signing import sign_ref, valid_stripe_signature, verify_ref
 from pkg_billing.store import (
     BillingStore,
     LedgerCursor,
@@ -43,7 +43,6 @@ __all__ = [
     "LedgerCursor",
     "UserId",
     "check_quota",
-    "checkout_url",
     "create_checkout_session",
     "get_billing_store",
     "get_config",
@@ -80,23 +79,6 @@ CATEGORY_ENTRY_TYPES: dict[BillingCategory, frozenset[str] | None] = {
 }
 
 
-def checkout_url(user: User, pack: str = "small") -> str:
-    """Return the configured Payment Link with a signed user reference."""
-    config = get_config()
-    if pack != "small":
-        raise RuntimeError("Large-pack checkout requires Stripe Checkout Sessions")
-    if config.payment_link is None:
-        raise RuntimeError("BILLING_PAYMENT_LINK is required for Payment Link checkout")
-    ref = sign_ref(str(user.id), config.ref_secret)
-    return append_query(
-        config.payment_link,
-        {
-            "client_reference_id": ref,
-            "prefilled_email": user.email,
-        },
-    )
-
-
 async def create_checkout_session(
     user: User,
     pack: Literal["small", "large"] | BillingConfig = "small",
@@ -112,7 +94,7 @@ async def create_checkout_session(
             "Checkout Sessions require STRIPE_SECRET, a pack price ID, and APP_BASE_URL"
         )
     price_id = (
-        (resolved_config.stripe_small_price_id or resolved_config.stripe_price_id)
+        resolved_config.stripe_small_price_id
         if pack == "small"
         else resolved_config.stripe_large_price_id
     )

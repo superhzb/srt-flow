@@ -15,7 +15,6 @@ from pkg_auth.api import User
 from pkg_billing.api import (
     BillingConfig,
     check_quota,
-    checkout_url,
     create_checkout_session,
     get_config,
     reset_settings_cache,
@@ -184,12 +183,10 @@ class _FakeBillingStore:
 @pytest.fixture(autouse=True)
 def billing_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("ENV", "dev")
-    monkeypatch.setenv("BILLING_PAYMENT_LINK", "https://buy.stripe.com/test_abc")
     monkeypatch.setenv("BILLING_REF_SECRET", "ref-secret")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
     monkeypatch.setenv("FREE_TIER_MONTHLY_LIMIT", "2")
     monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
-    monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
     monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
     monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
@@ -209,34 +206,9 @@ def test_public_api_all_names_are_resolvable() -> None:
         assert hasattr(mod, name), f"{name} in __all__ but not defined in api"
 
 
-def test_checkout_url_adds_signed_reference_and_email() -> None:
-    user = User(id="42", google_sub="sub", email="user@example.com", tier="free")
-
-    url = checkout_url(user)
-
-    assert url.startswith("https://buy.stripe.com/test_abc?")
-    assert "prefilled_email=user%40example.com" in url
-    assert "client_reference_id=NDI." in url
-
-
-def test_checkout_rejects_live_link_outside_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BILLING_PAYMENT_LINK", "https://buy.stripe.com/6oUeVebSc4cocsra6Y8IU00")
-
-    with pytest.raises(RuntimeError, match="Non-prod"):
-        checkout_url(User(id="1", google_sub="sub", email="user@example.com", tier="free"))
-
-
-def test_checkout_rejects_placeholder_link(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BILLING_PAYMENT_LINK", "https://buy.stripe.com/test_replace_me")
-
-    with pytest.raises(RuntimeError, match="real Stripe Payment Link"):
-        checkout_url(User(id="1", google_sub="sub", email="user@example.com", tier="free"))
-
-
-def test_checkout_session_config_does_not_require_payment_link(
+def test_checkout_session_config_loads_without_payment_link(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("BILLING_PAYMENT_LINK", raising=False)
     monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
     monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
     monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
@@ -244,7 +216,6 @@ def test_checkout_session_config_does_not_require_payment_link(
 
     config = get_config()
 
-    assert config.payment_link is None
     assert config.stripe_secret == "sk_test_123"
     assert config.stripe_small_price_id == "price_small"
     assert config.stripe_large_price_id == "price_large"
@@ -266,6 +237,7 @@ def test_checkout_session_config_rejects_partial_env(
 def test_checkout_session_rejects_live_secret_outside_prod(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ENV", "dev")
     monkeypatch.setenv("STRIPE_SECRET", "sk_live_123")
     monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
     monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
@@ -273,6 +245,33 @@ def test_checkout_session_rejects_live_secret_outside_prod(
 
     with pytest.raises(RuntimeError, match="Non-prod STRIPE_SECRET"):
         get_config()
+
+
+def test_checkout_session_rejects_test_secret_in_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("STRIPE_SECRET", "sk_test_123")
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
+    monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
+
+    with pytest.raises(RuntimeError, match="Prod STRIPE_SECRET"):
+        get_config()
+
+
+def test_checkout_session_accepts_live_secret_in_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("STRIPE_SECRET", "sk_live_123")
+    monkeypatch.setenv("STRIPE_SMALL_PRICE_ID", "price_small")
+    monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
+    monkeypatch.setenv("APP_BASE_URL", "https://example.com")
+
+    config = get_config()
+
+    assert config.stripe_secret == "sk_live_123"
 
 
 def test_create_checkout_session_sends_signed_reference(
@@ -293,7 +292,6 @@ def test_create_checkout_session_sends_signed_reference(
     user = User(id="42", google_sub="sub", email="user@example.com", tier="free")
     config = BillingConfig(
         env="dev",
-        payment_link=None,
         ref_secret="ref-secret",
         webhook_secret="whsec_test",
         free_tier_monthly_limit=2,
@@ -329,7 +327,6 @@ def test_check_quota_raises_402_when_free_limit_reached() -> None:
     store = _FakeBillingStore([user], usage={"1": 2})
     config = BillingConfig(
         env="dev",
-        payment_link="https://buy.stripe.com/test_abc",
         ref_secret="ref-secret",
         webhook_secret="whsec_test",
         free_tier_monthly_limit=2,

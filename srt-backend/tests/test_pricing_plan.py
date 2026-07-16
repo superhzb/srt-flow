@@ -223,7 +223,6 @@ def test_paid_session_credits_pack_once_by_checkout_session(
     monkeypatch.setenv("STRIPE_LARGE_PRICE_ID", "price_large")
     monkeypatch.setenv("FREE_TIER_MONTHLY_LIMIT", "20")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:5730")
-    monkeypatch.delenv("BILLING_PAYMENT_LINK", raising=False)
 
     from pkg_billing.api import reset_settings_cache
     from srt_backend.app import api

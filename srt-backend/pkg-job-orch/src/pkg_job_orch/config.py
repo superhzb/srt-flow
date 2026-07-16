@@ -35,7 +35,7 @@ class JobOrchSettings(BaseSettings):
     database_url: str = DEFAULT_DATABASE_URL
     workers: str = DEFAULT_WORKERS
     dev_user_email: str = DEFAULT_DEV_USER_EMAIL
-    dev_user_tier: str = "free"
+    dev_user_tier: str = "paid"
 
     @field_validator("dev_user_tier")
     @classmethod
