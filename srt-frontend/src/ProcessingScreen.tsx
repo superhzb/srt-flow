@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { pollJob, type JobStatusResponse } from "./api.ts";
-import { usePoll } from "./hooks.ts";
+import { usePoll, useSmoothProgress } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { Card, MonoLabel, SectionHeader } from "./ui.tsx";
 
@@ -85,8 +85,11 @@ function JobProgress({
       onTerminal(jobId, result);
     }
   }, [jobId, result, terminal, onTerminal]);
-  const pct = Math.round((result?.progress ?? 0) * 100);
+  const realPct = Math.round((result?.progress ?? 0) * 100);
   const flowing = !terminal;
+  // Worker reports progress per batch + we poll coarsely, so `realPct` jumps
+  // 0 → 100 on short jobs. Ease it into a smooth, monotonic bar.
+  const pct = useSmoothProgress(realPct, flowing, result?.eta_seconds ?? null);
   return (
     <Card className="p-4">
       <div className="flex justify-between gap-3">
