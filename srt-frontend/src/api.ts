@@ -26,6 +26,7 @@ export interface PrepareResponse {
   count: number;
   detected_lang: string | null;
   confidence: number;
+  bilingual: { line_langs: string[] } | null;
 }
 
 export interface WorkerInfo {
@@ -61,6 +62,7 @@ export interface JobStatusResponse {
   worker: string;
   src_lang: string;
   tgt_langs: string[];
+  carried_langs?: string[];
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -81,6 +83,7 @@ export interface JobSummary {
   worker: string;
   src_lang: string;
   tgt_langs: string[];
+  carried_langs?: string[];
   progress: number;
   created_at: string;
   started_at: string | null;
@@ -156,7 +159,8 @@ export async function getLanguages(worker: string): Promise<LanguageInfo[]> {
 
 export async function startJob(params: {
   cues: Cue[];
-  sourceLang: string;
+  sourceLang?: string;
+  sourceLine?: number;
   targets: string[];
   worker: string;
   filename?: string;
@@ -166,7 +170,9 @@ export async function startJob(params: {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       cues: params.cues,
-      source_lang: params.sourceLang,
+      ...(params.sourceLine === undefined
+        ? { source_lang: params.sourceLang }
+        : { source_line: params.sourceLine }),
       targets: params.targets,
       worker: params.worker,
       filename: params.filename,

@@ -47,6 +47,7 @@ def test_job_defaults(temp_db: str) -> None:
     assert job.dropped_by_target is None
     assert job.attempts == 0
     assert job.tgt_langs == ""  # server_default from migration / SQLModel default
+    assert job.carried_langs == ""
     assert isinstance(job.created_at, datetime)
 
 

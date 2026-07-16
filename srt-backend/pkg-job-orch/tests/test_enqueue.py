@@ -107,6 +107,32 @@ def test_enqueue_without_filename_reports_null(temp_db: str, job_ctx: JobContext
         assert result.job.model_dump_summary()["filename"] is None
 
 
+def test_enqueue_splits_and_persists_carried_language(temp_db: str, job_ctx: JobContext) -> None:
+    cues = [Cue(1, "00:00:01,000", "00:00:02,000", "Bonjour\n你好")]
+    with Session(get_engine()) as session:
+        seed_dev_user(session)
+        session.commit()
+        result = enqueue(
+            job_ctx,
+            session,
+            cues=cues,
+            source_lang="fr",
+            targets=["en"],
+            worker_id="mlx",
+            carried_lang="zh",
+            source_line=0,
+        )
+        carried_langs = result.job.carried_langs
+        summary_carried = result.job.model_dump_summary()["carried_langs"]
+        job_id = result.job_id
+        session.commit()
+
+    assert carried_langs == "zh"
+    assert summary_carried == ["zh"]
+    assert b"Bonjour" in job_ctx.storage.get(DEV_USER_ID, job_id, "input.srt")
+    assert b"\xe4\xbd\xa0\xe5\xa5\xbd" in job_ctx.storage.get(DEV_USER_ID, job_id, "output.zh.srt")
+
+
 def test_enqueue_rejects_unknown_worker(temp_db: str, job_ctx: JobContext) -> None:
     with Session(get_engine()) as s:
         seed_dev_user(s)

@@ -195,7 +195,10 @@ export default function App() {
                     ...item,
                     status: "ready",
                     prepare,
-                    sourceLang: prepare.detected_lang ?? "",
+                    sourceLang: prepare.bilingual
+                      ? ""
+                      : (prepare.detected_lang ?? ""),
+                    sourceLine: undefined,
                     error: undefined,
                   }
                 : item,
@@ -259,6 +262,8 @@ export default function App() {
       generation: current.generation + 1,
       error: undefined,
       prepare: undefined,
+      sourceLang: undefined,
+      sourceLine: undefined,
     };
     setWorkflow((previous) => ({
       ...previous,
@@ -282,12 +287,21 @@ export default function App() {
     if (workflow.stage !== "configure") return;
     const { worker, targets } = workflow;
     const snapshot = workflow.entries;
+    const carriedLanguage = (entry: FileEntry) => {
+      const langs = entry.prepare?.bilingual?.line_langs;
+      return langs && entry.sourceLine !== undefined
+        ? langs[1 - entry.sourceLine]
+        : undefined;
+    };
     const entries = snapshot.filter(
       (entry) =>
         entry.status === "ready" &&
         entry.prepare &&
         entry.sourceLang &&
-        targets.some((target) => target !== entry.sourceLang),
+        targets.some(
+          (target) =>
+            target !== entry.sourceLang && target !== carriedLanguage(entry),
+        ),
     );
     setWorkflow((previous) => ({
       ...previous,
@@ -304,7 +318,12 @@ export default function App() {
           startJob({
             cues: entry.prepare!.cues,
             sourceLang: entry.sourceLang!,
-            targets: targets.filter((target) => target !== entry.sourceLang),
+            sourceLine: entry.sourceLine,
+            targets: targets.filter(
+              (target) =>
+                target !== entry.sourceLang &&
+                target !== carriedLanguage(entry),
+            ),
             worker,
             filename: entry.name,
           }),
@@ -576,12 +595,32 @@ export default function App() {
                     <ConfigureScreen
                       entries={workflow.entries}
                       readOnly={workflow.stage !== "configure"}
-                      onSourceChange={(id, sourceLang) =>
-                        updateEntries((entries) =>
-                          entries.map((entry) =>
-                            entry.id === id ? { ...entry, sourceLang } : entry,
-                          ),
-                        )
+                      onSourceChange={(id, sourceLang, sourceLine) =>
+                        setWorkflow((previous) => {
+                          if (previous.stage !== "configure") return previous;
+                          const current = previous.entries.find(
+                            (entry) => entry.id === id,
+                          );
+                          const carried =
+                            sourceLine !== undefined
+                              ? current?.prepare?.bilingual?.line_langs[
+                                  1 - sourceLine
+                                ]
+                              : undefined;
+                          return {
+                            ...previous,
+                            entries: previous.entries.map((entry) =>
+                              entry.id === id
+                                ? { ...entry, sourceLang, sourceLine }
+                                : entry,
+                            ),
+                            targets: carried
+                              ? previous.targets.filter(
+                                  (target) => target !== carried,
+                                )
+                              : previous.targets,
+                          };
+                        })
                       }
                       onRemove={(id) =>
                         updateEntries((entries) =>

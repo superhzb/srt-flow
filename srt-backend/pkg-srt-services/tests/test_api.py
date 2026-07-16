@@ -5,7 +5,14 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from pkg_srt_services.api import Cue, ParseError, build_stacked_srt, parse, serialize
+from pkg_srt_services.api import (
+    Cue,
+    ParseError,
+    build_stacked_srt,
+    parse,
+    serialize,
+    split_bilingual,
+)
 
 SIMPLE = """1
 00:00:01,000 --> 00:00:04,074
@@ -92,6 +99,23 @@ def test_serialize_empty_text_raises() -> None:
     cue = Cue(index=1, start="00:00:01,000", end="00:00:02,000", text="   ")
     with pytest.raises(ParseError):
         serialize([cue])
+
+
+def test_split_bilingual_preserves_timing_and_unpaired_source_cues() -> None:
+    cues = [
+        Cue(1, "00:00:01,000", "00:00:02,000", "Bonjour\n你好"),
+        Cue(2, "00:00:02,000", "00:00:03,000", "Unpaired note"),
+    ]
+    source, carried = split_bilingual(cues, 0)
+    assert [cue.text for cue in source] == ["Bonjour", "Unpaired note"]
+    assert [cue.text for cue in carried] == ["你好"]
+    assert parse(serialize(source)) == source
+    assert parse(serialize(carried)) == carried
+
+
+def test_split_bilingual_rejects_invalid_source_line() -> None:
+    with pytest.raises(ValueError, match="source_line"):
+        split_bilingual([Cue(1, "a", "b", "one\ntwo")], 2)
 
 
 def test_build_stacked_srt_respects_order_and_source_inclusion() -> None:

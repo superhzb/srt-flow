@@ -35,6 +35,7 @@ def test_prepare_returns_cues_and_detected_english() -> None:
     assert body["cues"][0]["index"] == 1
     assert body["detected_lang"] == "en"
     assert body["confidence"] >= 0.5
+    assert body["bilingual"] is None
 
 
 def test_prepare_detects_traditional_chinese() -> None:

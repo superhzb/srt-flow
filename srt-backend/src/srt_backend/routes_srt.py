@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from pkg_srt_services.api import Cue, ParseError, cue_to_dict, parse
 
-from .detection import detect
+from .detection import detect, detect_bilingual
 
 router = APIRouter(prefix="/srt", tags=["srt"])
 
@@ -159,9 +159,11 @@ async def prepare_srt(request: Request, file: RequiredFile) -> dict[str, object]
     payload = await _decode_srt(file)
     cues = _parse_or_400(payload)
     detection = detect(cues)
+    bilingual = detect_bilingual(cues)
     return {
         "cues": [cue_to_dict(c) for c in cues],
         "count": len(cues),
         "detected_lang": detection.lang,
         "confidence": detection.confidence,
+        "bilingual": {"line_langs": bilingual.line_langs} if bilingual.is_bilingual else None,
     }

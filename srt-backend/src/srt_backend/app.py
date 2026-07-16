@@ -44,6 +44,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from srt_backend.app_store import AppStore
+from srt_backend.detection import detect_bilingual
 from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
 from srt_backend.routes_workers import router as workers_router
@@ -84,6 +85,7 @@ def _build_ctx() -> JobContext:
         dev_user_id=DEV_USER_ID,
         notifier=NullNotifier(),
         free_tier_monthly_limit=int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "30")),
+        bilingual_detector=detect_bilingual,
     )
 
 

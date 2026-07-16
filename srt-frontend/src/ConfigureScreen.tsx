@@ -31,12 +31,13 @@ export interface FileEntry {
   generation: number;
   prepare?: PrepareResponse;
   sourceLang?: string;
+  sourceLine?: number;
   error?: string;
 }
 
 interface Props {
   entries: FileEntry[];
-  onSourceChange: (id: string, sourceLang: string) => void;
+  onSourceChange: (id: string, sourceLang: string, sourceLine?: number) => void;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
   onProcess: () => void;
@@ -135,6 +136,19 @@ export function ConfigureScreen({
 
   const targets = new Set(targetValues);
 
+  const carriedLanguage = (entry: FileEntry): string | undefined => {
+    const langs = entry.prepare?.bilingual?.line_langs;
+    return langs && entry.sourceLine !== undefined
+      ? langs[1 - entry.sourceLine]
+      : undefined;
+  };
+  const effectiveTargets = (entry: FileEntry): string[] => {
+    const carried = carriedLanguage(entry);
+    return [...targets].filter(
+      (target) => target !== entry.sourceLang && target !== carried,
+    );
+  };
+
   const parsingCount = entries.filter(
     (entry) => entry.status === "parsing",
   ).length;
@@ -142,22 +156,20 @@ export function ConfigureScreen({
     (entry) =>
       entry.status === "ready" &&
       Boolean(entry.sourceLang) &&
-      [...targets].some((target) => target !== entry.sourceLang),
+      effectiveTargets(entry).length > 0,
   );
   const skippedCount = entries.filter(
     (entry) =>
       entry.status === "ready" &&
       Boolean(entry.sourceLang) &&
       targets.size > 0 &&
-      ![...targets].some((target) => target !== entry.sourceLang),
+      effectiveTargets(entry).length === 0,
   ).length;
   const worker = workers.find((item) => item.id === DEFAULT_WORKER_ID);
   // Billed = source minutes × target languages per file (option A pricing).
   // Drop the source language so the count matches the backend's dedup.
   const creditMinutes = processable.reduce((total, entry) => {
-    const langs = [...targets].filter(
-      (target) => target !== entry.sourceLang,
-    ).length;
+    const langs = effectiveTargets(entry).length;
     return total + billedCreditMinutes(entry.prepare!.cues, langs);
   }, 0);
   const quotaExceeded = Boolean(
@@ -193,11 +205,14 @@ export function ConfigureScreen({
   const sourceLanguages = new Set(
     entries.map((entry) => entry.sourceLang).filter(Boolean),
   );
+  const carriedLanguages = new Set(
+    entries
+      .map(carriedLanguage)
+      .filter((lang): lang is string => Boolean(lang)),
+  );
   const sourceCount = sourceLanguages.size;
   const totalTracks = entries.reduce(
-    (count, entry) =>
-      count +
-      [...targets].filter((target) => target !== entry.sourceLang).length,
+    (count, entry) => count + effectiveTargets(entry).length,
     0,
   );
 
@@ -228,13 +243,11 @@ export function ConfigureScreen({
 
       <div className="grid gap-2 sm:grid-cols-2">
         {entries.map((entry) => {
-          const effectiveTargets = [...targets].filter(
-            (target) => target !== entry.sourceLang,
-          );
+          const newTargets = effectiveTargets(entry);
           const noEffectiveTarget =
             entry.status === "ready" &&
             targets.size > 0 &&
-            effectiveTargets.length === 0;
+            newTargets.length === 0;
           return (
             <div
               key={entry.id}
@@ -258,17 +271,15 @@ export function ConfigureScreen({
                         {entry.prepare.count} lines ·{" "}
                         {formatDuration(sourceDurationMs(entry.prepare.cues))}{" "}
                         duration ·{" "}
-                        {effectiveTargets.length > 0 ? (
+                        {newTargets.length > 0 ? (
                           <>
                             {sourceCreditMinutes(entry.prepare.cues)} min ×{" "}
-                            {effectiveTargets.length}{" "}
-                            {effectiveTargets.length === 1
-                              ? "language"
-                              : "languages"}{" "}
+                            {newTargets.length}{" "}
+                            {newTargets.length === 1 ? "language" : "languages"}{" "}
                             ={" "}
                             {billedCreditMinutes(
                               entry.prepare.cues,
-                              effectiveTargets.length,
+                              newTargets.length,
                             )}{" "}
                             credit minutes
                           </>
@@ -312,7 +323,41 @@ export function ConfigureScreen({
                   </button>
                 </div>
               </div>
-              {entry.status === "ready" && entry.prepare && (
+              {entry.status === "ready" && entry.prepare?.bilingual ? (
+                <fieldset className="mt-3 rounded-lg border border-border-subtle p-3">
+                  <legend className="px-1 text-xs font-medium text-ink-muted">
+                    This file already contains 2 languages
+                  </legend>
+                  <p className="mb-2 text-xs text-faint">
+                    Choose which line to translate. The other language is kept
+                    and is not charged.
+                  </p>
+                  <div className="space-y-2">
+                    {entry.prepare.bilingual.line_langs.map((code, line) => {
+                      const language = languages.find(
+                        (item) => item.code === code,
+                      );
+                      return (
+                        <label
+                          key={`${code}-${line}`}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          <input
+                            type="radio"
+                            name={`source-line-${entry.id}`}
+                            checked={entry.sourceLine === line}
+                            disabled={readOnly}
+                            onChange={() =>
+                              onSourceChange(entry.id, code, line)
+                            }
+                          />
+                          Line {line + 1}: {language?.name ?? code} ({code})
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ) : entry.status === "ready" && entry.prepare ? (
                 <label className="mt-3 block text-xs font-medium text-ink-muted">
                   Source language
                   <Select
@@ -331,7 +376,7 @@ export function ConfigureScreen({
                     ))}
                   </Select>
                 </label>
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -359,6 +404,7 @@ export function ConfigureScreen({
             const limitReached = targets.size >= MAX_TARGETS && !checked;
             const isOnlySource =
               sourceLanguages.size === 1 && sourceLanguages.has(language.code);
+            const isCarried = carriedLanguages.has(language.code);
             return (
               <LanguagePill
                 key={language.code}
@@ -366,7 +412,7 @@ export function ConfigureScreen({
                 selected={checked}
                 showCheck
                 interactive
-                disabled={readOnly || limitReached || isOnlySource}
+                disabled={readOnly || limitReached || isOnlySource || isCarried}
                 onClick={() => toggleTarget(language.code)}
               />
             );

@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pkg_srt_services.api import Cue, build_stacked_srt, dict_to_cue, parse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel import col, select
 
 from .credits import balance_snapshot, billed_minutes, source_minutes
@@ -38,10 +38,17 @@ class CreateJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cues: list[dict[str, Any]] = Field(min_length=1)
-    source_lang: str = Field(min_length=1)
+    source_lang: str | None = None
+    source_line: int | None = Field(default=None, ge=0, le=1)
     targets: list[str] = Field(min_length=1)
     worker: str = Field(min_length=1)
     filename: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_source_mode(self) -> CreateJobRequest:
+        if self.source_line is None and (self.source_lang is None or not self.source_lang.strip()):
+            raise ValueError("source_lang is required when source_line is not set")
+        return self
 
     @field_validator("filename")
     @classmethod
@@ -67,10 +74,33 @@ async def create_job(
     """Persist a new pending job and enqueue it for the worker_loop."""
     ctx = request.app.state.job_ctx
     cues = _dict_to_cues(body.cues)
+    source_lang = body.source_lang.strip() if body.source_lang else ""
+    carried_lang: str | None = None
+    if body.source_line is not None:
+        if ctx.bilingual_detector is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="file is not bilingual",
+            )
+        detection = ctx.bilingual_detector(cues)
+        if not detection.is_bilingual or len(detection.line_langs) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="file is not bilingual",
+            )
+        source_lang = detection.line_langs[body.source_line]
+        carried_lang = detection.line_langs[1 - body.source_line]
+
+    clean_targets = clean_target_langs(body.targets, source_lang)
+    if carried_lang in clean_targets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="carried language cannot also be a translation target",
+        )
     minutes = source_minutes(cues)
     # Option A pricing: bill source minutes once per target language. Use the
     # deduped target list so the pre-check matches what enqueue persists.
-    lang_count = len(clean_target_langs(body.targets, body.source_lang))
+    lang_count = len(clean_targets)
     billed = billed_minutes(minutes, lang_count)
     try:
         with session_scope() as session:
@@ -89,12 +119,14 @@ async def create_job(
                 ctx,
                 session,
                 cues=cues,
-                source_lang=body.source_lang,
-                targets=body.targets,
+                source_lang=source_lang,
+                targets=clean_targets,
                 worker_id=body.worker,
                 filename=body.filename,
                 user_id=user.id,
                 source_minutes=minutes,
+                carried_lang=carried_lang,
+                source_line=body.source_line,
             )
             ctx.queue.put_nowait(result.job_id)
     except EnqueueError as exc:
@@ -137,6 +169,7 @@ async def get_job(
             "worker": job.worker,
             "src_lang": job.src_lang,
             "tgt_langs": tgt_langs_from_csv(job.tgt_langs),
+            "carried_langs": tgt_langs_from_csv(job.carried_langs),
             "created_at": job.created_at.isoformat(),
             "started_at": job.started_at.isoformat() if job.started_at else None,
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
@@ -154,14 +187,15 @@ async def get_job(
             out["dropped_by_target"] = dropped_from_json(job.dropped_by_target)
         if job.status == "done":
             targets = tgt_langs_from_csv(job.tgt_langs)
+            carried = tgt_langs_from_csv(job.carried_langs)
             out["results"] = [
                 {
                     "lang": lang,
                     "download_url": f"/api/jobs/{job.id}/download?lang={lang}",
                 }
-                for lang in targets
+                for lang in [*carried, *targets]
             ]
-            default_order = [job.src_lang, *targets]
+            default_order = [job.src_lang, *carried, *targets]
             query = urlencode({"langs": ",".join(default_order)})
             out["stacked"] = {
                 "default_order": default_order,
@@ -220,13 +254,15 @@ async def download_job(
                 detail=f"job is {job.status}, not done",
             )
         targets = tgt_langs_from_csv(job.tgt_langs)
+        carried = tgt_langs_from_csv(job.carried_langs)
         source_lang = job.src_lang
         if langs is None and lang is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="lang or langs required",
             )
-        if langs is None and lang not in targets:
+        downloadable = {*targets, *carried}
+        if langs is None and lang not in downloadable:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"job has no output for language {lang!r}",
@@ -239,7 +275,7 @@ async def download_job(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="at least one language required",
             )
-        valid = {source_lang, *targets}
+        valid = {source_lang, *targets, *carried}
         for requested_lang in order:
             if requested_lang not in valid:
                 raise HTTPException(

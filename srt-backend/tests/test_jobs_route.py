@@ -13,8 +13,28 @@ import time
 from typing import Any
 
 import pytest
+from pkg_srt_services.api import BilingualDetection, Cue
 
 CUE_EN = {"index": 1, "start": "00:00:01,000", "end": "00:00:02,000", "text": "Hello"}
+BILINGUAL_CUES = [
+    {
+        "index": index,
+        "start": f"00:00:0{index},000",
+        "end": f"00:00:0{index + 1},000",
+        "text": f"Bonjour {index}\n\u4f60\u597d {index}",
+    }
+    for index in range(1, 4)
+]
+
+
+def _bilingual_detector(cues: list[Cue]) -> BilingualDetection:
+    del cues
+    return BilingualDetection(True, ["fr", "zh"], 1.0)
+
+
+def _not_bilingual_detector(cues: list[Cue]) -> BilingualDetection:
+    del cues
+    return BilingualDetection(False, [], 0.0)
 
 
 def _wait_for_status(
@@ -204,6 +224,81 @@ def test_create_rejects_malformed_cue(client: Any) -> None:
         },
     )
     assert resp.status_code == 400
+
+
+def test_bilingual_create_is_server_derived_split_and_unbilled_carried(
+    client: Any, patched_worker: Any
+) -> None:
+    client.app.state.job_ctx.bilingual_detector = _bilingual_detector
+    response = client.post(
+        "/api/jobs",
+        json={
+            "cues": BILINGUAL_CUES,
+            "source_line": 0,
+            "targets": ["en"],
+            "worker": "mlx",
+        },
+    )
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    body = _wait_for_status(client, job_id, {"done", "failed"})
+    assert body["status"] == "done", body.get("error")
+    assert body["src_lang"] == "fr"
+    assert body["tgt_langs"] == ["en"]
+    assert body["carried_langs"] == ["zh"]
+    assert body["stacked"]["default_order"] == ["fr", "zh", "en"]
+    assert patched_worker.calls[0]["targets"] == ["en"]
+    assert patched_worker.calls[0]["segments"][0] == {"id": 1, "fr": "Bonjour 1"}
+
+    source = client.app.state.job_ctx.storage.get("dev-user", job_id, "input.srt").decode()
+    carried = client.app.state.job_ctx.storage.get("dev-user", job_id, "output.zh.srt").decode()
+    assert "\u4f60\u597d" not in source
+    assert "Bonjour" not in carried
+
+    direct = client.get(f"/api/jobs/{job_id}/download?lang=zh")
+    assert direct.status_code == 200
+    assert "\u4f60\u597d 1" in direct.text
+    stacked = client.get(f"/api/jobs/{job_id}/download?langs=fr,zh,en")
+    assert stacked.status_code == 200
+    assert stacked.text.splitlines()[2:5] == ["Bonjour 1", "\u4f60\u597d 1", "[en] Bonjour 1"]
+
+
+def test_bilingual_create_rejects_carried_target_overlap(client: Any) -> None:
+    client.app.state.job_ctx.bilingual_detector = _bilingual_detector
+    response = client.post(
+        "/api/jobs",
+        json={
+            "cues": BILINGUAL_CUES,
+            "source_line": 0,
+            "targets": ["zh", "en"],
+            "worker": "mlx",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "carried language cannot also be a translation target"
+
+
+def test_source_line_rejected_when_detector_says_not_bilingual(client: Any) -> None:
+    client.app.state.job_ctx.bilingual_detector = _not_bilingual_detector
+    response = client.post(
+        "/api/jobs",
+        json={
+            "cues": BILINGUAL_CUES,
+            "source_line": 0,
+            "targets": ["en"],
+            "worker": "mlx",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "file is not bilingual"
+
+
+def test_create_requires_source_lang_or_source_line(client: Any) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={"cues": [CUE_EN], "targets": ["fr"], "worker": "mlx"},
+    )
+    assert response.status_code == 422
 
 
 def test_download_404_for_unknown_lang(client: Any, patched_worker: Any) -> None:

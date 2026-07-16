@@ -48,7 +48,13 @@ function RealJobsScreen() {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return jobs ?? [];
     return (jobs ?? []).filter((job) =>
-      [job.filename, job.id, job.src_lang, ...job.tgt_langs]
+      [
+        job.filename,
+        job.id,
+        job.src_lang,
+        ...(job.carried_langs ?? []),
+        ...job.tgt_langs,
+      ]
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase().includes(needle)),
     );
@@ -275,6 +281,7 @@ function JobReview({
         <StackedOutput
           jobId={jobId}
           sourceLang={job.src_lang}
+          carriedLangs={job.carried_langs ?? []}
           targetLangs={job.tgt_langs.filter(
             (target) => target !== job.src_lang,
           )}

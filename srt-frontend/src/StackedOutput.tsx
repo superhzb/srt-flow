@@ -34,6 +34,7 @@ export function StackedOutput({
   jobId,
   demoCues,
   sourceLang,
+  carriedLangs = [],
   targetLangs,
   historyHeader,
   historySidebar,
@@ -41,12 +42,16 @@ export function StackedOutput({
   jobId?: string;
   demoCues?: Record<string, Cue[]>;
   sourceLang: string;
+  carriedLangs?: string[];
   targetLangs: string[];
   historyHeader?: { filename: string; meta: string };
   historySidebar?: HTMLElement | null;
 }) {
-  const key = [sourceLang, ...targetLangs].join("\0");
-  const all = useMemo(() => [sourceLang, ...targetLangs], [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = [sourceLang, ...carriedLangs, ...targetLangs].join("\0");
+  const all = useMemo(
+    () => [sourceLang, ...carriedLangs, ...targetLangs],
+    [key], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const [order, setOrder] = useState(all),
     [included, setIncluded] = useState(() => new Set(all));
   const [preview, setPreview] = useState<string | null>(null),

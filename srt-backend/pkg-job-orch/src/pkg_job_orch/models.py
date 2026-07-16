@@ -158,6 +158,7 @@ class Job(SQLModel, table=True):
     worker: str
     src_lang: str
     tgt_langs: str = Field(default="")  # CSV — see tgt_langs_from_csv
+    carried_langs: str = Field(default="")  # CSV — pre-supplied, never billed
     progress: float = Field(default=0.0)
     progress_by_target: str | None = Field(default=None)
     error: str | None = Field(default=None)
@@ -180,6 +181,7 @@ class Job(SQLModel, table=True):
             "worker": self.worker,
             "src_lang": self.src_lang,
             "tgt_langs": tgt_langs_from_csv(self.tgt_langs),
+            "carried_langs": tgt_langs_from_csv(self.carried_langs),
             "progress": self.progress,
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,

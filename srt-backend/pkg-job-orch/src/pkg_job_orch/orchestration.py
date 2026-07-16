@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from pkg_file_upload.api import Storage
-from pkg_srt_services.api import Cue, parse, serialize
+from pkg_srt_services.api import BilingualDetector, Cue, parse, serialize, split_bilingual
 from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
@@ -150,6 +150,7 @@ class JobContext:
     # ``default_worker_client``. Default assigned in __post_init__ to
     # sidestep dataclass field-default-vs-factory awkwardness.
     worker_client: WorkerClientFn | None = None
+    bilingual_detector: BilingualDetector | None = None
 
     def __post_init__(self) -> None:
         if self.worker_client is None:
@@ -190,6 +191,8 @@ def enqueue(
     filename: str | None = None,
     user_id: str | None = None,
     source_minutes: int = 0,
+    carried_lang: str | None = None,
+    source_line: int | None = None,
 ) -> EnqueueResult:
     """Persist a new pending job and put its id on the queue.
 
@@ -222,9 +225,24 @@ def enqueue(
         raise EnqueueError(str(exc)) from exc
 
     job_id = uuid.uuid4().hex
-    input_srt = serialize(cues)
+    source_cues = cues
+    carried_cues: list[Cue] = []
+    if carried_lang is not None:
+        if source_line is None:
+            raise EnqueueError("source_line is required for a carried language")
+        source_cues, carried_cues = split_bilingual(cues, source_line)
+    input_srt = serialize(source_cues)
     owner_id = user_id or ctx.dev_user_id
     ctx.storage.save(owner_id, job_id, "input.srt", input_srt.encode("utf-8"))
+    if carried_lang is not None:
+        if not carried_cues:
+            raise EnqueueError("bilingual file has no carried cues")
+        ctx.storage.save(
+            owner_id,
+            job_id,
+            f"output.{carried_lang}.srt",
+            serialize(carried_cues).encode("utf-8"),
+        )
 
     job = Job(
         id=job_id,
@@ -235,6 +253,7 @@ def enqueue(
         worker=worker_id,
         src_lang=source_lang,
         tgt_langs=tgt_langs_to_csv(clean_targets),
+        carried_langs=tgt_langs_to_csv([carried_lang] if carried_lang else []),
         progress=0.0,
     )
     session.add(job)
