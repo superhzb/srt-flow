@@ -9,7 +9,6 @@ Pure (no FastAPI, no I/O) so it is testable in isolation.
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -112,41 +111,49 @@ def detect(cues: list[Cue]) -> Detection:
     return Detection(lang=code, confidence=confidence)
 
 
-def _detect_code(sample: str) -> str | None:
-    """Return one supported language code for a text sample, when confident."""
+def _detect_sample(sample: str) -> tuple[str | None, float]:
+    """Return (supported code, confidence) for a text sample, when confident."""
     if not sample.strip():
-        return None
+        return None, 0.0
     values = _get_detector().compute_language_confidence_values(sample)
     if not values:
-        return None
+        return None, 0.0
     top = values[0]
     code = _LINGUA_TO_CODE.get(top.language)
-    if code is None or float(top.value) < _CONFIDENCE_FLOOR:
-        return None
+    confidence = float(top.value)
+    if code is None or confidence < _CONFIDENCE_FLOOR:
+        return None, confidence
     if code == "zh" and _is_traditional(sample):
-        return "zh-TW"
-    return code
+        code = "zh-TW"
+    return code, confidence
+
+
+def _detect_code(sample: str) -> str | None:
+    """Return one supported language code for a text sample, when confident."""
+    return _detect_sample(sample)[0]
 
 
 def detect_bilingual(cues: list[Cue]) -> BilingualDetection:
-    """Detect a majority ordered language pair across exactly two-line cues."""
+    """Detect a consistent two-line, two-language pattern across cues.
+
+    Detects the language of *all* line-0 text concatenated and all line-1 text
+    concatenated, rather than each cue's short lines in isolation. Individual
+    subtitle lines are often too short to clear the confidence floor on their
+    own; aggregating gives the detector enough context to recognise genuinely
+    bilingual files. A majority of cues must still follow the two-line pattern.
+    """
     if len(cues) < _BILINGUAL_MIN_CUES:
         return BilingualDetection(False, [], 0.0)
 
-    pairs: Counter[tuple[str, str]] = Counter()
-    for cue in cues:
-        lines = cue.text.split("\n")
-        if len(lines) != 2:
-            continue
-        first = _detect_code(lines[0])
-        second = _detect_code(lines[1])
-        if first is not None and second is not None and first != second:
-            pairs[(first, second)] += 1
-
-    if not pairs:
+    two_line = [cue for cue in cues if len(cue.text.split("\n")) == 2]
+    if len(two_line) < _BILINGUAL_MIN_CUES or len(two_line) * 2 <= len(cues):
         return BilingualDetection(False, [], 0.0)
-    winning_pair, count = pairs.most_common(1)[0]
-    confidence = count / len(cues)
-    if count < _BILINGUAL_MIN_CUES or confidence <= 0.5:
+
+    first_text = " ".join(cue.text.split("\n")[0] for cue in two_line)
+    second_text = " ".join(cue.text.split("\n")[1] for cue in two_line)
+    first_code, first_conf = _detect_sample(first_text)
+    second_code, second_conf = _detect_sample(second_text)
+    confidence = min(first_conf, second_conf)
+    if first_code is None or second_code is None or first_code == second_code:
         return BilingualDetection(False, [], confidence)
-    return BilingualDetection(True, list(winning_pair), confidence)
+    return BilingualDetection(True, [first_code, second_code], confidence)
