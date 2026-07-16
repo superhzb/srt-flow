@@ -249,7 +249,11 @@ export function BillingScreen({
 
       {state.kind === "ready" && state.me && state.balance && state.history && (
         <>
-          <AccountCard me={state.me} balance={state.balance} onLogout={onLogout} />
+          <AccountCard
+            me={state.me}
+            balance={state.balance}
+            onLogout={onLogout}
+          />
           <UsageCard balance={state.balance} />
 
           <section aria-labelledby="buy-minutes-heading">

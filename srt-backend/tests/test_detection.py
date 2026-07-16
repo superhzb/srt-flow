@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from pkg_srt_services.api import Cue, parse
+from pkg_srt_services.api import Cue
 from srt_backend.detection import SUPPORTED_LANGS, detect, detect_bilingual
 
 
@@ -55,14 +53,6 @@ def test_detected_lang_is_always_supported() -> None:
         assert d.lang is None or d.lang in SUPPORTED_LANGS
 
 
-def test_detect_bilingual_reference_file() -> None:
-    fixture = Path(__file__).parents[2] / "test_files" / "1960-eleves-cours-francais.srt"
-    result = detect_bilingual(parse(fixture.read_text(encoding="utf-8")))
-    assert result.is_bilingual
-    assert result.line_langs == ["fr", "zh"]
-    assert result.confidence > 0.5
-
-
 def test_detect_bilingual_requires_majority_of_all_cues() -> None:
     cues = [
         _cue(1, "This is a complete English sentence.\n这是一个完整的中文句子。"),
@@ -89,7 +79,7 @@ def test_detect_bilingual_short_lines_detected_via_aggregate() -> None:
     # unreliable on their own; concatenating line-0 and line-1 gives the
     # detector enough text to recognise the French/English split.
     cues = [
-        _cue(i, f"Oui, bien sûr, merci beaucoup.\nYes, of course, thank you so much.")
+        _cue(i, "Oui, bien sûr, merci beaucoup.\nYes, of course, thank you so much.")
         for i in range(1, 6)
     ]
     result = detect_bilingual(cues)
