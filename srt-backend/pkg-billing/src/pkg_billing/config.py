@@ -50,7 +50,7 @@ class BillingSettings(BaseSettings):
     billing_payment_link: str | None = None
     billing_ref_secret: str | None = None
     stripe_webhook_secret: str | None = None
-    free_tier_monthly_limit: int = 20
+    free_tier_monthly_limit: int = 30
     stripe_secret: str | None = None
     stripe_price_id: str | None = None
     stripe_small_price_id: str | None = None
@@ -77,7 +77,7 @@ class BillingSettings(BaseSettings):
     @field_validator("free_tier_monthly_limit", mode="before")
     @classmethod
     def _empty_int_to_default(cls, value: object) -> object:
-        return 20 if value in ("", None) else value
+        return 30 if value in ("", None) else value
 
 
 @lru_cache(maxsize=1)
