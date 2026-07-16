@@ -39,6 +39,11 @@ decode rules (`routes_srt._decode_srt`): everything in `languages/` and
 | `one-digit-hour.srt` | single-digit hour field (`0:00:01,000`) |
 | `trailing-ws.srt` | leading/trailing whitespace in bodies |
 | `extra-blank-lines.srt` | multiple blank lines between blocks |
+| `punctuation-only.srt` | bodies that are only punctuation (`...`, `?!`, `—`, CJK) |
+| `symbols-only.srt` | bodies that are only signs (`♪`, `[MUSIC]`, `>>`, `***`) |
+| `very-long-line.srt` | one physical line, ~1740 chars, no spaces/breaks (no-wrap) |
+| `numeric-body.srt` | digit-only bodies — must not be read as an index line |
+| `many-lines.srt` | one cue with 8 stacked lines (all preserved) |
 
 ## invalid/ — MUST be rejected (negative tests)
 
@@ -52,6 +57,7 @@ decode rules (`routes_srt._decode_srt`): everything in `languages/` and
 | `no-timespan.srt` | block too short / missing timespan |
 | `missing-index.srt` | missing/invalid index line |
 | `not-utf8.srt` | `file is not valid UTF-8` (Latin-1 bytes) |
+| `blank-line-in-body.srt` | blank line inside a cue body splits the block → stray trailing block rejected |
 
 ## Not covered here
 

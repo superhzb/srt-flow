@@ -214,6 +214,45 @@ EDGE_TEXT: dict[str, str] = {
         cue(1, "00:00:01,000", "00:00:03,000", "Body has trailing spaces.   "),
         cue(2, "00:00:03,100", "00:00:05,000", "   Body has leading spaces."),
     ),
+    # Body is only punctuation (valid: non-empty after strip).
+    "punctuation-only.srt": srt(
+        cue(1, "00:00:01,000", "00:00:03,000", "..."),
+        cue(2, "00:00:03,100", "00:00:05,000", "?!"),
+        cue(3, "00:00:05,100", "00:00:07,000", "—"),
+        cue(4, "00:00:07,100", "00:00:09,000", "。！？、「」"),
+    ),
+    # Body is only signs / non-letter glyphs (music notes, brackets, chevrons).
+    "symbols-only.srt": srt(
+        cue(1, "00:00:01,000", "00:00:03,000", "♪"),
+        cue(2, "00:00:03,100", "00:00:05,000", "♪ ♪ ♪"),
+        cue(3, "00:00:05,100", "00:00:07,000", "[MUSIC]"),
+        cue(4, "00:00:07,100", "00:00:09,000", ">>"),
+        cue(5, "00:00:09,100", "00:00:11,000", "***"),
+    ),
+    # A single physical line with no spaces/breaks — stresses no-wrap handling.
+    "very-long-line.srt": srt(
+        cue(
+            1,
+            "00:00:01,000",
+            "00:00:12,000",
+            "VeryLongUnbrokenTokenNoSpaces" * 60,
+        ),
+    ),
+    # Body is only digits — must not be mistaken for an index line.
+    "numeric-body.srt": srt(
+        cue(1, "00:00:01,000", "00:00:03,000", "1234567890"),
+        cue(2, "00:00:03,100", "00:00:05,000", "007"),
+        cue(3, "00:00:05,100", "00:00:07,000", "42\n99"),
+    ),
+    # One cue with many stacked lines (all preserved).
+    "many-lines.srt": srt(
+        cue(
+            1,
+            "00:00:01,000",
+            "00:00:08,000",
+            "\n".join(f"Line {n} of a tall caption." for n in range(1, 9)),
+        ),
+    ),
     # Extra blank lines between blocks (split on 1+ blank lines).
     "extra-blank-lines.srt": srt(
         cue(1, "00:00:01,000", "00:00:03,000", "First block."),
@@ -259,6 +298,11 @@ INVALID_TEXT: dict[str, str] = {
     "no-timespan.srt": "1\nJust text, no timing line.\n",
     # Arrow but reversed/garbage separator.
     "bad-arrow.srt": "1\n00:00:01,000 => 00:00:03,000\nWrong arrow token.\n",
+    # Blank line inside a cue body splits the block (parser splits on \n\s*\n),
+    # leaving a trailing block whose first line is not a valid index.
+    "blank-line-in-body.srt": (
+        "1\n00:00:01,000 --> 00:00:03,000\nFirst line of caption.\n\nStray second line.\n"
+    ),
 }
 INVALID_RAW: dict[str, bytes] = {
     # Zero-byte file -> rejected as empty upload before parse.

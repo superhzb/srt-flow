@@ -24,7 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
-LANG_DIR = ROOT / "test_files" / "matrix" / "languages"
+MATRIX = ROOT / "test_files" / "matrix"
+LANG_DIR = MATRIX / "languages"
 sys.path.insert(0, str(ROOT / "srt-backend" / "pkg-srt-services" / "src"))
 from pkg_srt_services.api import parse  # noqa: E402
 
@@ -96,23 +97,37 @@ def main() -> int:
     ap.add_argument("--label", required=True)
     ap.add_argument("--report", required=True)
     ap.add_argument("--targets-per", type=int, default=3)
-    ap.add_argument("--files", default="", help="comma-separated stems; default = all supported")
+    ap.add_argument("--files", default="", help="comma-separated stems; default = all in --dir")
+    ap.add_argument("--dir", default="languages", help="matrix subdir to drive (relative)")
+    ap.add_argument(
+        "--source",
+        default="",
+        help="force this source lang for every file (skips per-stem source inference)",
+    )
     ap.add_argument("--worker-log", default="")
     ap.add_argument("--timeout", type=float, default=300.0)
     args = ap.parse_args()
 
+    src_dir = MATRIX / args.dir
+    forced_source = args.source.strip()
+
     if args.files.strip():
         stems = [s.strip() for s in args.files.split(",") if s.strip()]
+    elif forced_source:
+        # Non-language dir (e.g. edge-cases): drive every fixture present.
+        stems = sorted(p.stem for p in src_dir.glob("*.srt"))
     else:
         stems = SUPPORTED
-    stems = [s for s in stems if s in SUPPORTED]
+        stems = [s for s in stems if s in SUPPORTED]
 
     lines: list[str] = [
         f"# translation drive report — worker: {args.label}",
         "",
         f"- base_url: `{args.base_url}`",
+        f"- dir: `{args.dir}`",
         f"- targets_per_source: {args.targets_per}",
-        f"- sources: `{stems}`",
+        f"- source: `{forced_source or '(per-file stem)'}`",
+        f"- fixtures: `{stems}`",
     ]
 
     # Health first — captures a fast failure with context.
@@ -127,10 +142,10 @@ def main() -> int:
 
     passed = failed = 0
     for stem in stems:
-        path = LANG_DIR / f"{stem}.srt"
+        path = src_dir / f"{stem}.srt"
         if not path.exists():
             continue
-        source = stem
+        source = forced_source or stem
         targets = targets_for(source, args.targets_per)
         segments = segments_from(path, source)
         payload = {"source_lang": source, "targets": targets, "segments": segments}
