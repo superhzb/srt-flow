@@ -44,6 +44,20 @@ type Workflow = {
 type Tab = "translate" | "jobs" | "billing";
 type Theme = "light" | "dark";
 
+const TAB_PATHS: Record<Tab, string> = {
+  translate: "/app",
+  jobs: "/app/jobs",
+  billing: "/app/billing",
+};
+
+function tabFromPath(pathname: string): Tab {
+  if (pathname === TAB_PATHS.jobs) return "jobs";
+  if (pathname === TAB_PATHS.billing) return "billing";
+  return "translate";
+}
+
+const WELCOME_SEEN_KEY = "welcomeSeen";
+
 const ACCEPT = ".srt";
 const EMPTY_WORKFLOW: Workflow = {
   stage: "idle",
@@ -71,7 +85,9 @@ function validateFile(file: File): string | null {
 export default function App() {
   const [session, setSession] = useState<Me | null | undefined>(undefined);
   const [workflow, setWorkflow] = useState<Workflow>(EMPTY_WORKFLOW);
-  const [tab, setTab] = useState<Tab>("translate");
+  const [tab, setTab] = useState<Tab>(() =>
+    tabFromPath(window.location.pathname),
+  );
   const [showLanding, setShowLanding] = useState(
     () => window.location.pathname === "/",
   );
@@ -131,8 +147,12 @@ export default function App() {
         if (!live) return;
         setSession(me);
         if (me && window.location.pathname === "/") {
-          window.history.replaceState({}, "", "/app");
+          window.history.replaceState({}, "", TAB_PATHS.translate);
           setShowLanding(false);
+        }
+        if (!me && tabFromPath(window.location.pathname) === "billing") {
+          setTab("translate");
+          window.history.replaceState({}, "", TAB_PATHS.translate);
         }
       })
       .catch(() => {
@@ -167,6 +187,12 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
+    try {
+      if (sessionStorage.getItem(WELCOME_SEEN_KEY) === "1") return;
+      sessionStorage.setItem(WELCOME_SEEN_KEY, "1");
+    } catch {
+      /* unavailable */
+    }
     let live = true;
     setWelcomeOpen(true);
     setWelcomeBalance(undefined);
@@ -444,6 +470,11 @@ export default function App() {
     } finally {
       await clearClientRecords();
     }
+    try {
+      sessionStorage.removeItem(WELCOME_SEEN_KEY);
+    } catch {
+      /* unavailable */
+    }
     setSession(null);
     setWorkflow(EMPTY_WORKFLOW);
     setTab("translate");
@@ -483,13 +514,14 @@ export default function App() {
     }
     setShowLanding(false);
     setTab(nextTab);
-    window.history.replaceState({}, "", "/app");
+    window.history.replaceState({}, "", TAB_PATHS[nextTab]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function viewResults() {
     setWorkflow(EMPTY_WORKFLOW);
     setTab("jobs");
+    window.history.replaceState({}, "", TAB_PATHS.jobs);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
