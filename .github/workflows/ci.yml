@@ -34,13 +34,15 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --frozen --all-extras
       - run: uv run pyright
+      # No LLM_BACKENDS/DEEPSEEK_API_KEY set: exercises translate_segments
+      # with a fake LLMBackend only, never a live cloud/mlx endpoint.
       - run: uv run pytest -q
 
   pkg-translator:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: pkg-translator
+        working-directory: srt-backend/pkg-translator
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -51,11 +53,11 @@ jobs:
       - run: uv run pyright
       - run: uv run pytest -q
 
-  cloud-worker:
+  pkg-llm-backend:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: srt-cloud-worker
+        working-directory: srt-backend/pkg-llm-backend
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -64,25 +66,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --frozen
       - run: uv run pyright
-      # e2e tests hit a live DeepSeek API; run them only behind a secret.
-      - run: uv run pytest -q -m "not e2e"
-
-  mlx-worker:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: srt-mlx-worker
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-      - run: uv python install 3.12
-      # Sync WITHOUT the [mlx] extra: mlx/mlx-lm are Apple-silicon only and
-      # cannot install on the Linux CI runner. Non-e2e tests don't import them.
-      - run: uv sync --frozen
-      - run: uv run pyright
-      - run: uv run pytest -q -m "not e2e"
+      - run: uv run pytest -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -105,7 +89,7 @@ jobs:
 
   deploy-staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
-    needs: [ruff, backend, pkg-translator, cloud-worker, mlx-worker, frontend]
+    needs: [ruff, backend, pkg-translator, pkg-llm-backend, frontend]
     runs-on: [self-hosted, macOS, srt-flow-deploy]
     timeout-minutes: 45
     permissions:
@@ -121,7 +105,7 @@ jobs:
 
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ruff, backend, pkg-translator, cloud-worker, mlx-worker, frontend]
+    needs: [ruff, backend, pkg-translator, pkg-llm-backend, frontend]
     runs-on: [self-hosted, macOS, srt-flow-deploy]
     timeout-minutes: 45
     permissions:

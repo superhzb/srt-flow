@@ -105,9 +105,6 @@ active_resource_project() {
 install_dependencies() {
   {
     (cd "$clone/srt-backend" && uv sync --frozen --all-extras) &&
-      (cd "$clone/pkg-translator" && uv sync --frozen) &&
-      (cd "$clone/srt-cloud-worker" && uv sync --frozen) &&
-      (cd "$clone/srt-mlx-worker" && uv sync --frozen --extra mlx) &&
       (cd "$clone/srt-frontend" && npm ci && npm run build)
   } || return $?
 }

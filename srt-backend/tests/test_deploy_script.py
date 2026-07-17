@@ -33,9 +33,6 @@ def deployment_repo(tmp_path: Path) -> tuple[Path, Path, str]:
     (source / "version.txt").write_text("one\n")
     for directory in (
         "srt-backend",
-        "pkg-translator",
-        "srt-cloud-worker",
-        "srt-mlx-worker",
         "srt-frontend",
     ):
         package_dir = source / directory
