@@ -19,10 +19,10 @@ from pkg_billing.api import BillingStore, LedgerCursor, UserId
 from pkg_job_orch.api import (
     DEV_USER_ID,
     CreditLedgerEntry,
-    FunnelEvent,
     ProcessedEvent,
     User,
     balance_snapshot,
+    record_event,
     session_scope,
 )
 from sqlalchemy import and_, or_
@@ -49,6 +49,7 @@ class AppStore(UserStore, BillingStore):
     async def upsert(self, *, google_sub: str, email: str, tier: Tier = "free") -> User:
         with session_scope(self._database_url) as session:
             row = session.exec(select(User).where(User.google_sub == google_sub)).first()
+            created = row is None
             if row is None:
                 row = User(
                     id=uuid.uuid4().hex,
@@ -61,6 +62,23 @@ class AppStore(UserStore, BillingStore):
                 row.email = email
                 row.tier = "free"
             session.flush()
+            # First upsert = sign-up (once ever, keyed on user_id); every later
+            # one is a login (distinct each time, so no dedup key).
+            if created:
+                record_event(
+                    session,
+                    "user_signed_up",
+                    user_id=row.id,
+                    dedup_key=row.id,
+                    props={"provider": "google"},
+                )
+            else:
+                record_event(
+                    session,
+                    "user_logged_in",
+                    user_id=row.id,
+                    props={"provider": "google"},
+                )
             return row
 
     async def get_dev_user(self, *, email: str, tier: Tier) -> User:
@@ -119,9 +137,10 @@ class AppStore(UserStore, BillingStore):
                         paid_at=paid_at,
                     )
                 )
+                ledger_entry_id = uuid.uuid4().hex
                 session.add(
                     CreditLedgerEntry(
-                        id=uuid.uuid4().hex,
+                        id=ledger_entry_id,
                         user_id=user_id_str,
                         entry_type="purchase",
                         minutes_delta=minutes,
@@ -141,6 +160,15 @@ class AppStore(UserStore, BillingStore):
                 user.purchased_minutes += minutes
                 user.tier = "free"
                 session.add(user)
+                # Keyed on the Stripe event_id — the same idempotency the
+                # ProcessedEvent row enforces, so the fact lands at most once.
+                record_event(
+                    session,
+                    "purchase_completed",
+                    user_id=user_id_str,
+                    dedup_key=event_id,
+                    props={"pack": pack, "ledger_entry_id": ledger_entry_id},
+                )
         except IntegrityError:
             return False
         return True
@@ -395,16 +423,37 @@ class AppStore(UserStore, BillingStore):
                 is not None
             )
 
-    async def record_checkout_started(self, user_id: UserId, pack: str) -> None:
+    async def record_event(
+        self,
+        event_type: str,
+        *,
+        user_id: str | None = None,
+        anon_id: str | None = None,
+        source: str = "server",
+        session_id: str | None = None,
+        dedup_key: str | None = None,
+        props: dict[str, object] | None = None,
+    ) -> None:
+        """Open a session and append one analytics event (standalone path)."""
         with session_scope(self._database_url) as session:
-            session.add(
-                FunnelEvent(
-                    id=uuid.uuid4().hex,
-                    user_id=str(user_id),
-                    event_type="checkout_started",
-                    pack=pack,
-                )
+            record_event(
+                session,
+                event_type,
+                user_id=user_id,
+                anon_id=anon_id,
+                source=source,
+                session_id=session_id,
+                dedup_key=dedup_key,
+                props=props,
             )
+
+    async def record_checkout_started(self, user_id: UserId, pack: str) -> None:
+        # Intent, not outcome — may legitimately repeat, so no dedup key.
+        await self.record_event(
+            "checkout_started",
+            user_id=str(user_id),
+            props={"pack": pack},
+        )
 
     async def has_processed_event(self, event_id: str) -> bool:
         with session_scope(self._database_url) as session:

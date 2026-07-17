@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 
 import {
   errMessage,
@@ -21,7 +21,13 @@ import {
 import { Button, SectionHeader, Select } from "./ui.tsx";
 
 const MAX_TARGETS = 3;
-const DEFAULT_WORKER_ID = "cloud";
+
+// Pick the worker to default to from whatever /api/workers registered (driven
+// by the backend's LLM_BACKENDS): prefer the first healthy one, otherwise the
+// first registered. Returns "" when no workers are available.
+function defaultWorkerId(workers: WorkerInfo[]): string {
+  return (workers.find((worker) => worker.healthy) ?? workers[0])?.id ?? "";
+}
 
 export interface FileEntry {
   id: string;
@@ -45,6 +51,8 @@ interface Props {
   guest?: boolean;
   targets: string[];
   onTargetsChange: (targets: string[]) => void;
+  worker: string;
+  onWorkerChange: (worker: string) => void;
   translateButtonRef?: Ref<HTMLButtonElement>;
   readOnly?: boolean;
 }
@@ -59,6 +67,8 @@ export function ConfigureScreen({
   guest = false,
   targets: targetValues,
   onTargetsChange,
+  worker,
+  onWorkerChange,
   translateButtonRef,
   readOnly = false,
 }: Props) {
@@ -72,6 +82,10 @@ export function ConfigureScreen({
     guest ? null : undefined,
   );
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const workerRef = useRef(worker);
+  workerRef.current = worker;
+  const onWorkerChangeRef = useRef(onWorkerChange);
+  onWorkerChangeRef.current = onWorkerChange;
 
   useEffect(() => {
     if (guest) {
@@ -104,6 +118,15 @@ export function ConfigureScreen({
       .then((items) => {
         if (cancelled) return;
         setWorkers(items);
+        // Auto-select the worker the backend registered from LLM_BACKENDS.
+        // Keep a restored selection if it's still registered; otherwise take
+        // the default (first healthy, else first).
+        const selected = items.some((item) => item.id === workerRef.current)
+          ? workerRef.current
+          : defaultWorkerId(items);
+        if (selected && selected !== workerRef.current) {
+          onWorkerChangeRef.current(selected);
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled)
@@ -120,8 +143,9 @@ export function ConfigureScreen({
       setLoadError(null);
       return;
     }
+    if (!worker) return;
     let cancelled = false;
-    getLanguages(DEFAULT_WORKER_ID)
+    getLanguages(worker)
       .then((items) => {
         if (!cancelled) setLanguages(items);
       })
@@ -132,7 +156,7 @@ export function ConfigureScreen({
     return () => {
       cancelled = true;
     };
-  }, [guest]);
+  }, [guest, worker]);
 
   const targets = new Set(targetValues);
 
@@ -165,7 +189,7 @@ export function ConfigureScreen({
       targets.size > 0 &&
       effectiveTargets(entry).length === 0,
   ).length;
-  const worker = workers.find((item) => item.id === DEFAULT_WORKER_ID);
+  const selectedWorker = workers.find((item) => item.id === worker);
   // Billed = source minutes × target languages per file (option A pricing).
   // Drop the source language so the count matches the backend's dedup.
   const creditMinutes = processable.reduce((total, entry) => {
@@ -182,7 +206,7 @@ export function ConfigureScreen({
     targets.size === 0 ||
     creditUnavailable ||
     quotaExceeded ||
-    (!guest && !worker?.healthy);
+    (!guest && !selectedWorker?.healthy);
 
   function toggleTarget(code: string) {
     if (readOnly) return;

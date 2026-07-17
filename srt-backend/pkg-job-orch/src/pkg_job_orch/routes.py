@@ -20,6 +20,7 @@ from sqlmodel import col, select
 
 from .credits import balance_snapshot, billed_minutes, source_minutes
 from .db import session_scope
+from .events import record_event
 from .models import Job, User, dropped_from_json, progress_from_json, tgt_langs_from_csv
 from .orchestration import EnqueueError, clean_target_langs, enqueue
 from .workers import WorkerResolutionError
@@ -127,6 +128,17 @@ async def create_job(
                 source_minutes=minutes,
                 carried_lang=carried_lang,
                 source_line=body.source_line,
+            )
+            record_event(
+                session,
+                "job_created",
+                user_id=user.id,
+                dedup_key=result.job_id,
+                props={
+                    "job_id": result.job_id,
+                    "src_lang": source_lang,
+                    "tgt_langs": clean_targets,
+                },
             )
             ctx.queue.put_nowait(result.job_id)
     except EnqueueError as exc:

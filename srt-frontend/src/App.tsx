@@ -28,6 +28,7 @@ import {
   savePendingTranslation,
   takePendingTranslation,
 } from "./clientStorage.ts";
+import { track } from "./analytics.ts";
 
 type EnqueuedJob = { entry: FileEntry; jobId: string };
 type EnqueueFailure = { entry: FileEntry; message: string };
@@ -44,11 +45,27 @@ type Workflow = {
 type Tab = "translate" | "jobs" | "billing";
 type Theme = "light" | "dark";
 
+const TAB_PATHS: Record<Tab, string> = {
+  translate: "/app",
+  jobs: "/app/jobs",
+  billing: "/app/billing",
+};
+
+function tabFromPath(pathname: string): Tab {
+  if (pathname === TAB_PATHS.jobs) return "jobs";
+  if (pathname === TAB_PATHS.billing) return "billing";
+  return "translate";
+}
+
+const WELCOME_SEEN_KEY = "welcomeSeen";
+
 const ACCEPT = ".srt";
 const EMPTY_WORKFLOW: Workflow = {
   stage: "idle",
   entries: [],
-  worker: "cloud",
+  // Selected once ConfigureScreen loads /api/workers; the backend rejects an
+  // unregistered worker id, so we never default to a hardcoded literal.
+  worker: "",
   targets: [],
   jobs: [],
   enqueueFailures: [],
@@ -71,7 +88,9 @@ function validateFile(file: File): string | null {
 export default function App() {
   const [session, setSession] = useState<Me | null | undefined>(undefined);
   const [workflow, setWorkflow] = useState<Workflow>(EMPTY_WORKFLOW);
-  const [tab, setTab] = useState<Tab>("translate");
+  const [tab, setTab] = useState<Tab>(() =>
+    tabFromPath(window.location.pathname),
+  );
   const [showLanding, setShowLanding] = useState(
     () => window.location.pathname === "/",
   );
@@ -95,6 +114,12 @@ export default function App() {
   const previousStage = useRef<Stage>("idle");
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  // One screen_viewed per effective screen change (landing overrides tab).
+  const screen = showLanding ? "landing" : tab;
+  useEffect(() => {
+    track("screen_viewed", { screen });
+  }, [screen]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -131,8 +156,12 @@ export default function App() {
         if (!live) return;
         setSession(me);
         if (me && window.location.pathname === "/") {
-          window.history.replaceState({}, "", "/app");
+          window.history.replaceState({}, "", TAB_PATHS.translate);
           setShowLanding(false);
+        }
+        if (!me && tabFromPath(window.location.pathname) === "billing") {
+          setTab("translate");
+          window.history.replaceState({}, "", TAB_PATHS.translate);
         }
       })
       .catch(() => {
@@ -167,6 +196,12 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
+    try {
+      if (sessionStorage.getItem(WELCOME_SEEN_KEY) === "1") return;
+      sessionStorage.setItem(WELCOME_SEEN_KEY, "1");
+    } catch {
+      /* unavailable */
+    }
     let live = true;
     setWelcomeOpen(true);
     setWelcomeBalance(undefined);
@@ -413,6 +448,7 @@ export default function App() {
       return;
     }
     setDecisionOpen(false);
+    track("demo_started");
     setWorkflow((previous) => ({ ...previous, stage: "demo" }));
   }
 
@@ -443,6 +479,11 @@ export default function App() {
       await logout();
     } finally {
       await clearClientRecords();
+    }
+    try {
+      sessionStorage.removeItem(WELCOME_SEEN_KEY);
+    } catch {
+      /* unavailable */
     }
     setSession(null);
     setWorkflow(EMPTY_WORKFLOW);
@@ -483,13 +524,14 @@ export default function App() {
     }
     setShowLanding(false);
     setTab(nextTab);
-    window.history.replaceState({}, "", "/app");
+    window.history.replaceState({}, "", TAB_PATHS[nextTab]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function viewResults() {
     setWorkflow(EMPTY_WORKFLOW);
     setTab("jobs");
+    window.history.replaceState({}, "", TAB_PATHS.jobs);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -689,6 +731,10 @@ export default function App() {
                       targets={workflow.targets}
                       onTargetsChange={(targets) =>
                         setWorkflow((previous) => ({ ...previous, targets }))
+                      }
+                      worker={workflow.worker}
+                      onWorkerChange={(worker) =>
+                        setWorkflow((previous) => ({ ...previous, worker }))
                       }
                       translateButtonRef={translateButtonRef}
                     />

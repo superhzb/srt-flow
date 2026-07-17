@@ -28,6 +28,7 @@ from sqlmodel import Session, col, select
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
 from .credits import debit_job_once
 from .db import session_scope
+from .events import record_event
 from .models import Job, User, dropped_to_json, tgt_langs_from_csv, tgt_langs_to_csv
 from .workers import WorkerResolutionError, worker_backend_config
 
@@ -519,6 +520,13 @@ def _land_results(ctx: JobContext, job_id: str, user_id: str, outcome: StreamOut
             row.finished_at = datetime.now(UTC)
             debit_job_once(session, row, ctx.free_tier_monthly_limit)
             session.add(row)
+            record_event(
+                session,
+                "job_completed",
+                user_id=row.user_id,
+                dedup_key=f"{job_id}:completed",
+                props={"job_id": job_id, "source_minutes": row.source_minutes},
+            )
             session.commit()
     except Exception as exc:
         raise LandingError(str(exc), dropped=dropped) from exc
@@ -545,6 +553,13 @@ def _mark_failed(
                 row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)
             session.add(row)
+            record_event(
+                session,
+                "job_failed",
+                user_id=row.user_id,
+                dedup_key=f"{job_id}:failed",
+                props={"job_id": job_id, "error_kind": kind},
+            )
     except Exception:  # noqa: BLE001 — never raise from failure path
         logger.exception("worker_loop: failed to mark job %s as failed", job_id)
 
