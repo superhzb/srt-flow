@@ -1,8 +1,8 @@
-"""Tests for /api/workers and /api/languages routes (Phase 6 #28).
+"""Tests for /api/workers and /api/languages routes (Phase B).
 
-The routes are a thin layer over pkg_job_orch worker helpers; they were
-previously untested. probe_workers/fetch_languages are monkeypatched so no
-real worker HTTP is made.
+The routes are a thin layer over pkg_job_orch's in-process worker registry;
+``probe_workers``/``fetch_languages`` are monkeypatched so no real backend
+call (network or otherwise) is made.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 import srt_backend.routes_workers as routes_workers
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pkg_job_orch.workers import WorkerStatus
+from pkg_job_orch.workers import WorkerResolutionError, WorkerStatus
 
 
 def _app() -> FastAPI:
@@ -24,7 +24,7 @@ def _app() -> FastAPI:
 
 @pytest.fixture
 def workers_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WORKERS", "cloud=http://up:5733,mlx=http://down:5732")
+    monkeypatch.setenv("LLM_BACKENDS", "cloud,mlx")
 
 
 def test_list_workers_reports_health_per_worker(
@@ -54,7 +54,7 @@ def test_list_languages_returns_worker_json(
     del workers_env
     payload: dict[str, object] = {"languages": [{"code": "es", "name": "Spanish"}]}
 
-    async def fake_fetch(_base_url: str) -> dict[str, object]:
+    async def fake_fetch(_worker_id: str) -> dict[str, object]:
         return payload
 
     monkeypatch.setattr(routes_workers, "fetch_languages", fake_fetch)
@@ -66,8 +66,15 @@ def test_list_languages_returns_worker_json(
     assert resp.json() == payload
 
 
-def test_list_languages_unknown_worker_is_404(workers_env: None) -> None:
+def test_list_languages_unknown_worker_is_404(
+    workers_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     del workers_env
+
+    async def fake_fetch(worker_id: str) -> dict[str, object]:
+        raise WorkerResolutionError(f"unknown worker id: {worker_id!r}")
+
+    monkeypatch.setattr(routes_workers, "fetch_languages", fake_fetch)
 
     with TestClient(_app()) as client:
         resp = client.get("/api/languages?worker=nope")
@@ -81,7 +88,7 @@ def test_list_languages_worker_failure_is_502(
 ) -> None:
     del workers_env
 
-    async def exploding(_base_url: str) -> dict[str, object]:
+    async def exploding(_worker_id: str) -> dict[str, object]:
         raise RuntimeError("upstream down")
 
     monkeypatch.setattr(routes_workers, "fetch_languages", exploding)

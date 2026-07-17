@@ -41,7 +41,7 @@ def test_processing_job_resumes_after_restart(
     db_url = f"sqlite:///{db_dir / 'test.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("STORAGE_ROOT", str(storage_dir))
-    monkeypatch.setenv("WORKERS", "mlx=http://localhost:5732")
+    monkeypatch.setenv("LLM_BACKENDS", "mlx")
     try:
         from fastapi.testclient import TestClient
         from srt_backend.app import api
@@ -115,7 +115,7 @@ def test_done_job_survives_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     db_url = f"sqlite:///{db_dir / 'test.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("STORAGE_ROOT", str(storage_dir))
-    monkeypatch.setenv("WORKERS", "mlx=http://localhost:5732")
+    monkeypatch.setenv("LLM_BACKENDS", "mlx")
     try:
         from fastapi.testclient import TestClient
         from srt_backend.app import api

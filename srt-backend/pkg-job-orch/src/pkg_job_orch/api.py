@@ -40,7 +40,10 @@ __all__ = [
     "JobContext",
     "Notifier",
     "NullNotifier",
+    "StreamOutcome",
     "WorkerClientFn",
+    "WorkerStreamError",
+    "build_segments",
     "default_worker_client",
     "enqueue",
     "enqueue_pending",
@@ -48,18 +51,13 @@ __all__ = [
     "recover_jobs",
     "seed_dev_user",
     "worker_loop",
-    # worker client
-    "StreamOutcome",
-    "WorkerStreamError",
-    "build_segments",
-    "stream_translate",
     # worker registry
-    "DEFAULT_WORKERS",
     "WorkerInfo",
     "WorkerResolutionError",
     "WorkerStatus",
     "fetch_languages",
     "probe_workers",
+    "worker_backend_config",
     "worker_base_url",
     "workers_env",
     # router
@@ -102,7 +100,10 @@ from .orchestration import (
     JobContext,
     Notifier,
     NullNotifier,
+    StreamOutcome,
     WorkerClientFn,
+    WorkerStreamError,
+    build_segments,
     default_worker_client,
     enqueue,
     enqueue_pending,
@@ -112,19 +113,13 @@ from .orchestration import (
     worker_loop,
 )
 from .routes import require_job_user, router
-from .worker_client import (
-    StreamOutcome,
-    WorkerStreamError,
-    build_segments,
-    stream_translate,
-)
 from .workers import (
-    DEFAULT_WORKERS,
     WorkerInfo,
     WorkerResolutionError,
     WorkerStatus,
     fetch_languages,
     probe_workers,
+    worker_backend_config,
     worker_base_url,
     workers_env,
 )

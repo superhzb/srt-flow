@@ -2,7 +2,9 @@
 
 Env is read through one ``JobOrchSettings`` model instead of scattered inline
 ``os.environ.get`` calls. The ``DEFAULT_*`` constants live here (single source)
-and are re-exported by ``db``/``workers``/``orchestration`` for back-compat.
+and are re-exported by ``db``/``orchestration`` for back-compat. Which LLM
+backends (in-process worker rows) are available is a separate concern owned
+by ``pkg_llm_backend.load_backends`` (env ``LLM_BACKENDS``) — see ``workers.py``.
 
 ``load_settings`` returns a fresh instance per call (no cache): these reads are
 cheap and low-frequency, and a fresh read lets tests ``monkeypatch.setenv``
@@ -17,23 +19,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 __all__ = [
     "DEFAULT_DATABASE_URL",
     "DEFAULT_DEV_USER_EMAIL",
-    "DEFAULT_WORKERS",
     "JobOrchSettings",
     "load_settings",
 ]
 
 DEFAULT_DATABASE_URL = "sqlite:///./.data/dev/db.sqlite"
-DEFAULT_WORKERS = "mlx=http://localhost:5732,cloud=http://localhost:5733"
 DEFAULT_DEV_USER_EMAIL = "dev@local"
 
 
 class JobOrchSettings(BaseSettings):
-    """Runtime settings loaded from env (DATABASE_URL, WORKERS, DEV_USER_*)."""
+    """Runtime settings loaded from env (DATABASE_URL, DEV_USER_*)."""
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     database_url: str = DEFAULT_DATABASE_URL
-    workers: str = DEFAULT_WORKERS
     dev_user_email: str = DEFAULT_DEV_USER_EMAIL
     dev_user_tier: str = "paid"
 

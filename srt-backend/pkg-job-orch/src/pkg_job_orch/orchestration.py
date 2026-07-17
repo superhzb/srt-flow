@@ -1,11 +1,11 @@
 """Job orchestration: enqueue, worker_loop, recover, seed dev user.
 
-Pure-ish wiring layer over models/db/storage/worker_client. The app
-lifespan constructs the queue + worker_loop task and shares them via
-``app.state``; the router calls :func:`enqueue` with that queue.
+Pure-ish wiring layer over models/db/storage/the in-process LLM backend
+registry. The app lifespan constructs the queue + worker_loop task and shares
+them via ``app.state``; the router calls :func:`enqueue` with that queue.
 
 Single-writer invariant: exactly one ``worker_loop`` per process pulls
-``concurrency=1``. SQLite's single writer + the mlx worker's
+``concurrency=1``. SQLite's single writer + the translation backend's
 single-threaded model both demand it.
 """
 
@@ -20,20 +20,16 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from pkg_file_upload.api import Storage
+from pkg_llm_backend.api import Backend
 from pkg_srt_services.api import BilingualDetector, Cue, parse, serialize, split_bilingual
+from pkg_translator.api import BatchProgress, translate_segments
 from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
 from .credits import debit_job_once
 from .db import session_scope
 from .models import Job, User, dropped_to_json, tgt_langs_from_csv, tgt_langs_to_csv
-from .worker_client import (
-    StreamOutcome,
-    WorkerStreamError,
-    build_segments,
-    stream_translate,
-)
-from .workers import WorkerResolutionError, worker_base_url
+from .workers import WorkerResolutionError, worker_backend_config
 
 __all__ = [
     "DEFAULT_DEV_USER_EMAIL",
@@ -43,7 +39,10 @@ __all__ = [
     "JobContext",
     "Notifier",
     "NullNotifier",
+    "StreamOutcome",
     "WorkerClientFn",
+    "WorkerStreamError",
+    "build_segments",
     "clean_target_langs",
     "default_worker_client",
     "enqueue",
@@ -78,6 +77,39 @@ def clean_target_langs(targets: list[str], source_lang: str) -> list[str]:
 # Polling cadence on an empty queue — keeps the loop responsive to the
 # shutdown signal without busy-spinning.
 _QUEUE_POLL_TIMEOUT: float = 0.5
+
+
+class ProgressUpdate(float):
+    """Aggregate-compatible progress value carrying per-target counters."""
+
+    by_target: dict[str, dict[str, int]]
+
+    def __new__(cls, fraction: float, by_target: dict[str, dict[str, int]]) -> ProgressUpdate:
+        value = float.__new__(cls, fraction)
+        value.by_target = by_target
+        return value
+
+
+@dataclass(frozen=True)
+class StreamOutcome:
+    """Successful terminal state of a translation run."""
+
+    source_lang: str
+    targets: list[str]
+    segments: list[dict[str, Any]]
+
+
+class WorkerStreamError(RuntimeError):
+    """Raised on any backend-side failure (bad worker id, generation failure, …)."""
+
+
+# Adapter helper — shared by routes (POST validation) and orchestration.
+def build_segments(cues: list[Cue], source_lang: str) -> list[dict[str, Any]]:
+    """Map cues → translation ``segments`` format: ``[{id, "<src>": text}]``."""
+    return [{"id": cue.index, source_lang: cue.text} for cue in cues]
+
+
+_BACKEND = Backend()
 
 
 class EnqueueError(ValueError):
@@ -124,13 +156,68 @@ WorkerClientFn = Callable[
 
 
 async def default_worker_client(
-    base_url: str,
+    worker_id: str,
     source_lang: str,
     targets: list[str],
     segments: list[dict[str, Any]],
     on_progress: Callable[[float], None] | None,
 ) -> StreamOutcome:
-    return await stream_translate(base_url, source_lang, targets, segments, on_progress)
+    """Translate in-process against the ``worker_id`` backend row.
+
+    Replaces the old HTTP NDJSON hop: resolves ``worker_id`` to an
+    ``LLMBackendConfig``, runs ``pkg_translator.translate_segments`` on a
+    worker thread (mirroring ``pkg_translator.app``'s own streaming
+    endpoint), and folds ``BatchProgress`` into the same ``[0, 1]`` fraction
+    the old NDJSON client computed (denominator = Σ ``batch_total`` across
+    targets, learned as targets are seen).
+    """
+    try:
+        config = worker_backend_config(worker_id)
+    except WorkerResolutionError as exc:
+        raise WorkerStreamError(str(exc)) from exc
+
+    progress_by_target: dict[str, dict[str, int]] = {}
+    seen_targets: set[str] = set()
+    batches_done = 0
+    batches_total_sum = 0
+
+    def fold_progress(progress: BatchProgress) -> None:
+        nonlocal batches_done, batches_total_sum
+        done = progress.batch_index + 1
+        progress_by_target[progress.target] = {"done": done, "total": progress.batch_total}
+        if progress.target not in seen_targets:
+            seen_targets.add(progress.target)
+            batches_total_sum += progress.batch_total
+        batches_done += 1
+        if on_progress is not None:
+            fraction = batches_done / batches_total_sum if batches_total_sum else 0.0
+            on_progress(ProgressUpdate(fraction, dict(progress_by_target)))
+
+    try:
+        result_targets, result_segments = await asyncio.to_thread(
+            translate_segments,
+            source_lang,
+            targets,
+            segments,
+            config,
+            None,
+            fold_progress,
+            _BACKEND,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface any backend failure uniformly
+        raise WorkerStreamError(str(exc)) from exc
+
+    if on_progress is not None:
+        completed = {
+            target: {
+                "done": progress_by_target.get(target, {}).get("total", 1),
+                "total": progress_by_target.get(target, {}).get("total", 1),
+            }
+            for target in result_targets
+        }
+        on_progress(ProgressUpdate(1.0, completed))
+
+    return StreamOutcome(source_lang=source_lang, targets=result_targets, segments=result_segments)
 
 
 @dataclass
@@ -220,7 +307,7 @@ def enqueue(
 
     # Resolve worker eagerly — 404 belongs to the POST, not the worker_loop.
     try:
-        base_url = worker_base_url(worker_id)
+        worker_backend_config(worker_id)
     except WorkerResolutionError as exc:
         raise EnqueueError(str(exc)) from exc
 
@@ -258,9 +345,6 @@ def enqueue(
     )
     session.add(job)
     session.flush()
-    # base_url is unused here but validated above — keeps the failure on the
-    # request boundary. The worker_loop resolves it again from job.worker.
-    del base_url
     return EnqueueResult(job_id=job_id, job=job)
 
 
@@ -369,8 +453,7 @@ async def _run_translation(
     src_lang: str,
     targets: list[str],
 ) -> StreamOutcome:
-    """Resolve worker, parse input.srt → cues, stream-translate."""
-    base_url = worker_base_url(worker)
+    """Parse input.srt → cues, translate against the ``worker`` backend row."""
     raw_input = ctx.storage.get(user_id, job_id, "input.srt")
     cues = parse(raw_input.decode("utf-8"))
     segments = build_segments(cues, src_lang)
@@ -399,7 +482,7 @@ async def _run_translation(
 
     client = ctx.worker_client
     assert client is not None  # __post_init__ guarantees this
-    result = await client(base_url, src_lang, targets, segments, on_progress)
+    result = await client(worker, src_lang, targets, segments, on_progress)
     if isinstance(result, StreamOutcome):
         return result
     # Tests may pass a fake returning a plain dict — coerce for symmetry.

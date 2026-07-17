@@ -1,12 +1,15 @@
-"""Worker registry + HTTP client helpers.
+"""Worker registry — in-process LLM backend rows.
 
-Moved here from ``srt_backend.workers`` (slice 2) so ``pkg-job-orch``
-owns the whole worker surface: registry, health probe, language proxy,
-and the streaming translation client. The HTTP routes for
-``/api/workers`` and ``/api/languages`` stay in the app and call these.
+Slice 2/3 had this proxy HTTP to standalone worker services (``WORKERS=id=url,...``).
+Phase B collapsed the workers into this process: a "worker" is now just an id
+that resolves to an in-process ``pkg_llm_backend.LLMBackendConfig`` row. The
+HTTP routes ``/api/workers`` and ``/api/languages`` keep their exact shape —
+only what backs them changed, from "proxy to a worker" to "look up a
+registry row".
 
-Env ``WORKERS=id=url,id=url`` (default points at the Makefile's dev
-topology). Parsed at a runtime boundary (each call), never at import.
+``LLM_BACKENDS=id,id,...`` (env, parsed by ``pkg_llm_backend.load_backends``)
+decides which ids are available; local dev/test enables both ``mlx`` and
+``cloud``, cloud deploy enables only ``cloud``.
 """
 
 from __future__ import annotations
@@ -14,29 +17,29 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-import httpx
-
-from .config import DEFAULT_WORKERS, load_settings
+from pkg_llm_backend.api import Backend, BackendResolutionError, LLMBackendConfig, load_backends
+from pkg_translator.api import TranslationConfig, available_languages
 
 __all__ = [
-    "DEFAULT_WORKERS",
     "WorkerInfo",
     "WorkerResolutionError",
     "WorkerStatus",
-    "workers_env",
-    "worker_base_url",
-    "probe_workers",
     "fetch_languages",
+    "probe_workers",
+    "worker_backend_config",
+    "worker_base_url",
+    "workers_env",
 ]
 
 _HEALTH_TIMEOUT: float = 1.0
-_PROXY_TIMEOUT: float = 5.0
 
-# Pretty labels for the well-known dev ids; unknown ids fall back to title-case.
+# Pretty labels for the well-known ids; unknown ids fall back to title-case.
 _LABELS: dict[str, str] = {
     "cloud": "Cloud (DeepSeek)",
     "mlx": "Local MLX",
 }
+
+_BACKEND = Backend()
 
 
 @dataclass(frozen=True)
@@ -57,62 +60,66 @@ class WorkerStatus:
 
 
 class WorkerResolutionError(ValueError):
-    """Raised when a worker id cannot be resolved to a base URL."""
+    """Raised when a worker id cannot be resolved to a backend config."""
 
 
-def workers_env(raw: str | None = None) -> list[WorkerInfo]:
-    """Parse the ``WORKERS`` env string.
-
-    Format: ``id1=url1,id2=url2``. Whitespace around tokens is stripped.
-    Empty entries are skipped. Order is preserved (deterministic UI list).
-    """
-    text = raw if raw is not None else load_settings().workers
-    out: list[WorkerInfo] = []
-    for token in text.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        if "=" not in token:
-            raise WorkerResolutionError(f"invalid WORKERS entry {token!r}: expected 'id=url'")
-        wid, url = token.split("=", 1)
-        wid = wid.strip()
-        url = url.strip()
-        if not wid or not url:
-            raise WorkerResolutionError(f"invalid WORKERS entry {token!r}: empty id or url")
-        out.append(WorkerInfo(id=wid, base_url=url.rstrip("/")))
-    return out
+def workers_env() -> list[WorkerInfo]:
+    """List the enabled worker ids (registry rows), in ``LLM_BACKENDS`` order."""
+    try:
+        backends = load_backends()
+    except BackendResolutionError as exc:
+        raise WorkerResolutionError(str(exc)) from exc
+    return [
+        WorkerInfo(id=worker_id, base_url=config.base_url) for worker_id, config in backends.items()
+    ]
 
 
-def worker_base_url(worker_id: str, raw: str | None = None) -> str:
-    """Resolve ``worker_id`` → base URL or raise ``WorkerResolutionError``."""
-    for info in workers_env(raw):
-        if info.id == worker_id:
-            return info.base_url
-    raise WorkerResolutionError(f"unknown worker id: {worker_id!r}")
+def worker_backend_config(worker_id: str) -> LLMBackendConfig:
+    """Resolve ``worker_id`` -> its ``LLMBackendConfig`` or raise ``WorkerResolutionError``."""
+    try:
+        backends = load_backends()
+    except BackendResolutionError as exc:
+        raise WorkerResolutionError(str(exc)) from exc
+    config = backends.get(worker_id)
+    if config is None:
+        raise WorkerResolutionError(f"unknown worker id: {worker_id!r}")
+    return config
+
+
+def worker_base_url(worker_id: str) -> str:
+    """Resolve ``worker_id`` -> its backend ``base_url`` or raise ``WorkerResolutionError``."""
+    return worker_backend_config(worker_id).base_url
 
 
 async def probe_workers(infos: list[WorkerInfo]) -> list[WorkerStatus]:
-    """Probe each worker's ``/health`` in parallel with a tight timeout.
+    """Probe each worker's backend reachability in parallel with a tight timeout.
 
-    Unreachable / timed-out workers are reported ``healthy=False`` — never
+    Unreachable / timed-out backends are reported ``healthy=False`` — never
     raised. The list order matches ``infos``.
     """
 
     async def _one(info: WorkerInfo) -> WorkerStatus:
         try:
-            async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
-                resp = await client.get(f"{info.base_url}/health")
-                ok = resp.status_code == 200
-        except (httpx.HTTPError, OSError):
+            config = worker_backend_config(info.id)
+            await asyncio.wait_for(
+                asyncio.to_thread(_BACKEND.ensure_model_available, config),
+                timeout=_HEALTH_TIMEOUT,
+            )
+            ok = True
+        except Exception:  # noqa: BLE001 — any failure means "unhealthy", never raise
             ok = False
         return WorkerStatus(id=info.id, label=info.label, healthy=ok)
 
     return await asyncio.gather(*(_one(i) for i in infos))
 
 
-async def fetch_languages(base_url: str) -> dict[str, object]:
-    """Proxy ``GET {base_url}/languages`` and return its JSON verbatim."""
-    async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
-        resp = await client.get(f"{base_url}/languages")
-        resp.raise_for_status()
-        return resp.json()
+async def fetch_languages(worker_id: str) -> dict[str, object]:
+    """Resolve ``worker_id`` (validating it exists) and return the shared language catalog.
+
+    All backends share one ``pkg_translator`` language catalog; ``worker_id``
+    is only validated here to preserve the pre-merge 404-on-unknown-worker
+    contract of ``GET /api/languages?worker=...``.
+    """
+    worker_backend_config(worker_id)
+    languages_path = TranslationConfig().languages_path
+    return {"languages": available_languages(languages_path)}
