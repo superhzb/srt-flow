@@ -14,11 +14,14 @@ dependencies = [
   "httpx>=0.28.0",
   "itsdangerous>=2.2.0",
   "lingua-language-detector>=2.2.0",
+  "openai>=1.40.0",
   "pkg-auth",
   "pkg-billing",
   "pkg-file-upload",
   "pkg-job-orch",
+  "pkg-llm-backend",
   "pkg-srt-services",
+  "pkg-translator",
   "python-dotenv>=1.0.0",
   "python-multipart>=0.0.20",
   "sqladmin>=0.29.0",
@@ -40,7 +43,9 @@ pkg-auth = { workspace = true }
 pkg-billing = { workspace = true }
 pkg-file-upload = { workspace = true }
 pkg-job-orch = { workspace = true }
+pkg-llm-backend = { workspace = true }
 pkg-srt-services = { workspace = true }
+pkg-translator = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -48,8 +53,10 @@ members = [
   "pkg-billing",
   "pkg-file-upload",
   "pkg-job-orch",
+  "pkg-llm-backend",
   "pkg-notification",
   "pkg-srt-services",
+  "pkg-translator",
 ]
 
 [tool.hatch.build.targets.wheel]
