@@ -99,7 +99,6 @@ describe("BillingScreen", () => {
     render(<BillingScreen />);
 
     expect(await screen.findByText("person@example.com")).toBeInTheDocument();
-    expect(screen.getByText("Account acct_123")).toBeInTheDocument();
     expect(screen.getByText("115 min")).toBeInTheDocument();
     expect(
       screen.getByRole("progressbar", {

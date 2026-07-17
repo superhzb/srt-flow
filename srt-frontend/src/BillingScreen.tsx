@@ -347,14 +347,11 @@ function AccountCard({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <p className="font-mono text-xs text-ink-muted" title={me.id}>
-            Account {me.id.slice(0, 8)}
-          </p>
           {onLogout && (
             <button
               type="button"
               onClick={onLogout}
-              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
+              className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
             >
               Logout
             </button>

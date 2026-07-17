@@ -9,7 +9,7 @@ import {
   type JobStatus,
   type JobSummary,
 } from "./api.ts";
-import { CreditUsageBar, ErrorBanner } from "./components.tsx";
+import { ErrorBanner, QuotaBar } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
@@ -332,9 +332,18 @@ function JobReview({
 }
 
 function QuotaFooter({ balance }: { balance: BillingBalance }) {
+  // Show the full credit pool (free allowance + purchased), matching Billing,
+  // not only the monthly free bucket.
+  const total = balance.free_limit + balance.purchased_minutes;
+  const used = Math.max(0, total - balance.available_minutes);
   return (
     <div className="border-t border-border-subtle bg-surface-subtle px-4 py-3.5">
-      <CreditUsageBar used={balance.free_used} limit={balance.free_limit} />
+      <QuotaBar
+        used={used}
+        limit={total}
+        label="Credit"
+        ariaLabel="Total credit remaining"
+      />
     </div>
   );
 }

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   errMessage,
+  getBillingBalance,
   getMe,
   googleLoginUrl,
   logout,
   prepareSrt,
   startJob,
+  type BillingBalance,
   type JobStatusResponse,
   type Me,
 } from "./api.ts";
@@ -76,7 +78,10 @@ export default function App() {
   const [decisionOpen, setDecisionOpen] = useState(false);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
-  const [confirmRestored, setConfirmRestored] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeBalance, setWelcomeBalance] = useState<
+    BillingBalance | null | undefined
+  >(undefined);
   const [checkoutStatus, setCheckoutStatus] = useState<
     "success" | "cancel" | null
   >(null);
@@ -153,9 +158,25 @@ export default function App() {
         });
         setTab("translate");
         setShowLanding(false);
-        setConfirmRestored(true);
       })
       .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    let live = true;
+    setWelcomeOpen(true);
+    setWelcomeBalance(undefined);
+    getBillingBalance()
+      .then((value) => {
+        if (live) setWelcomeBalance(value);
+      })
+      .catch(() => {
+        if (live) setWelcomeBalance(null);
+      });
     return () => {
       live = false;
     };
@@ -216,9 +237,9 @@ export default function App() {
                     status: "ready",
                     prepare,
                     sourceLang: prepare.bilingual
-                      ? ""
+                      ? prepare.bilingual.line_langs[0]
                       : (prepare.detected_lang ?? ""),
-                    sourceLine: undefined,
+                    sourceLine: prepare.bilingual ? 0 : undefined,
                     error: undefined,
                   }
                 : item,
@@ -750,33 +771,35 @@ export default function App() {
           error={decisionError}
         />
       )}
-      {confirmRestored && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-5">
+      {welcomeOpen && session && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-5"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setWelcomeOpen(false)
+          }
+        >
           <div
             role="dialog"
             aria-modal="true"
-            aria-labelledby="restore-title"
+            aria-labelledby="welcome-title"
             className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"
           >
-            <h2 id="restore-title" className="text-xl font-semibold">
-              Your translation is ready
+            <h2 id="welcome-title" className="text-xl font-semibold">
+              Welcome back{session.email ? `, ${session.email}` : ""}
             </h2>
             <p className="mt-2 text-sm text-ink-muted">
-              Review the restored files and languages, then confirm before using
-              quota.
+              {welcomeBalance === undefined
+                ? "Loading your remaining credit…"
+                : welcomeBalance
+                  ? `You have ${welcomeBalance.available_minutes} credit ${
+                      welcomeBalance.available_minutes === 1
+                        ? "minute"
+                        : "minutes"
+                    } left. Upload a file whenever you're ready — you can top up in Billing if you run low.`
+                  : "We couldn't load your remaining credit right now. You can check it anytime in Billing."}
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button
-                onClick={() => {
-                  setConfirmRestored(false);
-                  void startRealProcessing();
-                }}
-              >
-                Confirm and translate
-              </Button>
-              <Button variant="ghost" onClick={() => setConfirmRestored(false)}>
-                Keep editing
-              </Button>
+              <Button onClick={() => setWelcomeOpen(false)}>Get started</Button>
             </div>
           </div>
         </div>

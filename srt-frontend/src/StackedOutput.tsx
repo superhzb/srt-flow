@@ -362,7 +362,7 @@ function ReviewPreview({ value, order }: { value: string; order: string[] }) {
                     {lang.toUpperCase()}
                   </span>
                   <span
-                    className="min-w-0 whitespace-pre-wrap text-[13.5px] leading-[1.4] text-[#20242e]"
+                    className="min-w-0 whitespace-pre-wrap text-[13.5px] leading-[1.4] text-ink"
                     style={{
                       fontFamily:
                         '"JetBrains Mono", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR", monospace',
