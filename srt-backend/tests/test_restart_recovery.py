@@ -41,6 +41,10 @@ def test_processing_job_resumes_after_restart(
     db_url = f"sqlite:///{db_dir / 'test.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("STORAGE_ROOT", str(storage_dir))
+    # Pin dev auth so load_dotenv(".env") can't decide auth mode from a local
+    # .env (which may be AUTH_MODE=google); load_dotenv won't override these.
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("AUTH_MODE", "dev")
     monkeypatch.setenv("LLM_BACKENDS", "mlx")
     try:
         from fastapi.testclient import TestClient
@@ -115,6 +119,10 @@ def test_done_job_survives_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     db_url = f"sqlite:///{db_dir / 'test.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("STORAGE_ROOT", str(storage_dir))
+    # Pin dev auth so load_dotenv(".env") can't decide auth mode from a local
+    # .env (which may be AUTH_MODE=google); load_dotenv won't override these.
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("AUTH_MODE", "dev")
     monkeypatch.setenv("LLM_BACKENDS", "mlx")
     try:
         from fastapi.testclient import TestClient
