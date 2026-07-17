@@ -77,7 +77,7 @@ export function AuthScreen() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Auth</h2>
-          <p className="text-sm text-slate-600">Session and tier checks.</p>
+          <p className="text-sm text-ink-muted">Session and tier checks.</p>
         </div>
         <RefreshButton
           onClick={refreshSession}
@@ -90,23 +90,21 @@ export function AuthScreen() {
         <ErrorBanner>{tierCheck.message}</ErrorBanner>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold">Session</h3>
             {state.kind === "loading" && (
-              <p className="mt-1 text-sm text-slate-600">Loading...</p>
+              <p className="mt-1 text-sm text-ink-muted">Loading...</p>
             )}
             {state.kind === "ready" && state.me === null && (
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Not authenticated (401)
               </p>
             )}
             {state.kind === "ready" && state.me && (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-mono text-slate-800">
-                  {state.me.email}
-                </span>
+                <span className="font-mono text-ink">{state.me.email}</span>
                 <TierBadge tier={state.me.tier} />
               </div>
             )}
@@ -117,7 +115,7 @@ export function AuthScreen() {
               onClick={() => {
                 window.location.href = googleLoginUrl();
               }}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
             >
               Login
             </button>
@@ -125,7 +123,7 @@ export function AuthScreen() {
               type="button"
               onClick={handleLogout}
               disabled={loggingOut}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loggingOut ? "Logging out..." : "Logout"}
             </button>
@@ -133,11 +131,11 @@ export function AuthScreen() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold">Tier Gate</h3>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">
               GET /api/auth/paid-check
             </p>
           </div>
@@ -145,7 +143,7 @@ export function AuthScreen() {
             type="button"
             onClick={handlePaidCheck}
             disabled={tierCheck.kind === "checking"}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60"
           >
             {tierCheck.kind === "checking" ? "Checking..." : "Check"}
           </button>
@@ -177,7 +175,7 @@ function CheckBadge({ status }: { status: number }) {
     );
   }
   return (
-    <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-700">
+    <span className="rounded-md border border-border bg-surface-subtle px-2.5 py-1 text-sm font-medium text-ink-muted">
       401 Not authenticated
     </span>
   );

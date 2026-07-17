@@ -26,6 +26,7 @@ export interface PrepareResponse {
   count: number;
   detected_lang: string | null;
   confidence: number;
+  bilingual: { line_langs: string[] } | null;
 }
 
 export interface WorkerInfo {
@@ -40,54 +41,100 @@ export interface LanguageInfo {
 }
 
 export type JobStatus = "pending" | "processing" | "done" | "failed";
+export type JobErrorKind = "worker_stream" | "internal" | "landing" | string;
 
 // Slice-3 result shape: no inline srt — fetch via download_url.
 export interface JobResult {
   lang: string;
   download_url: string;
 }
+export interface TargetProgress {
+  lang: string;
+  status: "queued" | "running" | "done";
+  progress: number;
+}
 
 export interface JobStatusResponse {
   id: string;
+  filename: string | null;
   status: JobStatus;
   progress: number;
   worker: string;
   src_lang: string;
   tgt_langs: string[];
+  carried_langs?: string[];
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_kind: JobErrorKind | null;
+  attempts: number;
+  dropped_by_target?: Record<string, number>;
   results?: JobResult[];
+  stacked?: { default_order: string[]; download_url: string };
   error?: string;
+  targets?: TargetProgress[];
+  eta_seconds?: number | null;
+  source_minutes?: number;
 }
 
 export interface JobSummary {
   id: string;
+  filename: string | null;
   status: JobStatus;
   worker: string;
   src_lang: string;
   tgt_langs: string[];
+  carried_langs?: string[];
   progress: number;
   created_at: string;
-}
-
-export interface TableInfo {
-  name: string;
-  count: number;
-}
-
-export interface TablePage {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  total: number;
-  page: number;
-  size: number;
+  started_at: string | null;
+  error_kind: JobErrorKind | null;
+  attempts: number;
 }
 
 export interface Me {
+  id: string;
   email: string;
   tier: "free" | "paid";
+  is_admin: boolean;
+  created_at: string;
 }
 
 export interface CheckoutResponse {
   url: string;
+}
+
+export type CreditPack = "small" | "large";
+
+export interface BillingBalance {
+  free_limit: number;
+  free_used: number;
+  free_remaining: number;
+  purchased_minutes: number;
+  available_minutes: number;
+}
+
+export type BillingCategory = "all" | "purchases" | "usage" | "adjustments";
+
+export interface BillingTransaction {
+  id: string;
+  created_at: string;
+  entry_type:
+    "purchase" | "job_debit" | "refund" | "dispute" | "dispute_reinstated";
+  minutes_delta: number;
+  usage_minutes: number;
+  balance_after: number | null;
+  pack: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  reason: string | null;
+  receipt_url: string | null;
+}
+
+export interface BillingHistoryPage {
+  entries: BillingTransaction[];
+  has_more: boolean;
+  next_cursor: string | null;
 }
 
 export async function prepareSrt(file: File): Promise<PrepareResponse> {
@@ -113,18 +160,23 @@ export async function getLanguages(worker: string): Promise<LanguageInfo[]> {
 
 export async function startJob(params: {
   cues: Cue[];
-  sourceLang: string;
+  sourceLang?: string;
+  sourceLine?: number;
   targets: string[];
   worker: string;
+  filename?: string;
 }): Promise<{ job_id: string }> {
   return apiFetch<{ job_id: string }>("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       cues: params.cues,
-      source_lang: params.sourceLang,
+      ...(params.sourceLine === undefined
+        ? { source_lang: params.sourceLang }
+        : { source_line: params.sourceLine }),
       targets: params.targets,
       worker: params.worker,
+      filename: params.filename,
     }),
   });
 }
@@ -136,28 +188,6 @@ export async function pollJob(jobId: string): Promise<JobStatusResponse> {
 export async function listJobs(): Promise<JobSummary[]> {
   const body = await apiFetch<{ jobs: JobSummary[] }>("/api/jobs");
   return body.jobs;
-}
-
-export async function listTables(): Promise<TableInfo[]> {
-  return apiFetch<TableInfo[]>("/api/db/tables");
-}
-
-export async function getTableRows(
-  name: string,
-  page: number,
-  size = 20,
-): Promise<TablePage> {
-  const params = new URLSearchParams({
-    page: String(page),
-    size: String(size),
-  });
-  return apiFetch<TablePage>(
-    `/api/db/tables/${encodeURIComponent(name)}?${params}`,
-  );
-}
-
-export async function clearAllData(): Promise<{ cleared: number }> {
-  return apiFetch<{ cleared: number }>("/api/db/clear", { method: "POST" });
 }
 
 export async function getMe(): Promise<Me | null> {
@@ -172,12 +202,46 @@ export async function logout(): Promise<void> {
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
 }
 
-export async function startCheckout(): Promise<CheckoutResponse> {
-  const resp = await fetch("/api/billing/checkout", { method: "POST" });
+export async function startCheckout(
+  pack: CreditPack,
+): Promise<CheckoutResponse> {
+  const resp = await fetch("/api/billing/checkout", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pack }),
+  });
   if (resp.status === 401) throw new Error("Log in before upgrading");
   if (resp.status === 402) throw new Error("Upgrade is required");
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return (await resp.json()) as CheckoutResponse;
+}
+
+export async function getBillingBalance(): Promise<BillingBalance> {
+  return apiFetch<BillingBalance>("/api/billing/balance");
+}
+
+export async function getBillingHistory(
+  opts: {
+    limit?: number;
+    before?: string;
+    category?: BillingCategory;
+  } = {},
+): Promise<BillingHistoryPage> {
+  const query = new URLSearchParams();
+  if (opts.limit !== undefined) query.set("limit", String(opts.limit));
+  if (opts.before) query.set("before", opts.before);
+  if (opts.category && opts.category !== "all") {
+    query.set("category", opts.category);
+  }
+  const suffix = query.size ? `?${query}` : "";
+  return apiFetch<BillingHistoryPage>(`/api/billing/history${suffix}`);
+}
+
+export async function getBillingConfirm(
+  sessionId: string,
+): Promise<{ applied: boolean }> {
+  const query = new URLSearchParams({ session_id: sessionId });
+  return apiFetch<{ applied: boolean }>(`/api/billing/confirm?${query}`);
 }
 
 export function googleLoginUrl(): string {
@@ -199,4 +263,16 @@ export async function fetchJobOutput(downloadUrl: string): Promise<string> {
   const resp = await fetch(downloadUrl);
   if (!resp.ok) throw new Error(`request failed (${resp.status})`);
   return await resp.text();
+}
+
+export function stackedDownloadUrl(jobId: string, order: string[]): string {
+  const params = new URLSearchParams({ langs: order.join(",") });
+  return `/api/jobs/${encodeURIComponent(jobId)}/download?${params}`;
+}
+
+export async function fetchStackedOutput(
+  jobId: string,
+  order: string[],
+): Promise<string> {
+  return fetchJobOutput(stackedDownloadUrl(jobId, order));
 }

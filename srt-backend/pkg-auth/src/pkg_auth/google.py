@@ -68,7 +68,8 @@ async def callback(
     claims = await verify_id_token(settings, id_token)
     subject = claims.get("sub")
     email = claims.get("email")
-    if not isinstance(subject, str) or not isinstance(email, str):
+    email_verified = claims.get("email_verified")
+    if not isinstance(subject, str) or not isinstance(email, str) or email_verified is not True:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid id_token claims",

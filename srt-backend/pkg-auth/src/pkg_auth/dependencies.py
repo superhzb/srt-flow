@@ -20,6 +20,18 @@ async def get_current_user(
     settings: Annotated[AuthSettings, Depends(load_settings)],
     user_store: Annotated[UserStore, Depends(get_user_store)],
 ) -> User:
+    user = await resolve_user(request, settings, user_store)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return user
+
+
+async def resolve_user(
+    request: Request,
+    settings: AuthSettings,
+    user_store: UserStore,
+) -> User | None:
+    """Resolve the app user for an HTTP request without enforcing authentication."""
     if settings.env == "dev" and settings.auth_mode == "dev":
         return await user_store.get_dev_user(
             email=settings.dev_user_email,
@@ -28,12 +40,32 @@ async def get_current_user(
 
     token = request.cookies.get(settings.session_cookie_name)
     if token is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        return None
 
-    google_sub = verify_session_token(token, settings)
+    try:
+        google_sub = verify_session_token(token, settings)
+    except HTTPException:
+        return None
     user = await user_store.get_by_sub(google_sub)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return user
+
+
+def is_admin(user: User, settings: AuthSettings) -> bool:
+    """Return whether a user is allowlisted for the current environment."""
+    google_sub = (user.google_sub or "").strip().casefold()
+    if google_sub in settings.admin_subs:
+        return True
+    return settings.env == "dev" and user.email.strip().casefold() in settings.admin_emails
+
+
+async def require_admin(
+    request: Request,
+    settings: Annotated[AuthSettings, Depends(load_settings)],
+    user_store: Annotated[UserStore, Depends(get_user_store)],
+) -> User:
+    user = await resolve_user(request, settings, user_store)
+    if user is None or not is_admin(user, settings):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
 

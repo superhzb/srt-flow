@@ -1,7 +1,7 @@
 # srt-flow
 
-Monorepo for the SRT translation app: a FastAPI backend, React frontend, cloud
-translation worker, local MLX worker, and shared worker core.
+Monorepo for the SRT translation app: a FastAPI backend (with the translation
+core and LLM backend as workspace members) and a React frontend.
 
 ## Requirements
 
@@ -16,10 +16,9 @@ translation worker, local MLX worker, and shared worker core.
 make install
 ```
 
-This syncs each separately deployable Python package and installs frontend
-dependencies. The repo is intentionally not a root uv workspace: the backend,
-cloud worker, and MLX worker must stay independently installable so deploy
-images do not pull platform-specific dependencies they do not need.
+This syncs the `srt-backend` uv workspace (backend app + all `pkg-*` members,
+including `pkg-translator` and `pkg-llm-backend`) and installs frontend
+dependencies.
 
 ## Run
 
@@ -29,16 +28,12 @@ make dev
 
 Ports:
 
-- Frontend: http://localhost:5730
-- Backend: http://localhost:5731
-- MLX worker: http://localhost:5732
-- Cloud worker: http://localhost:5733
+- Frontend: http://localhost:19105
+- Backend: http://localhost:19205
 
-Other entrypoints:
-
-- `make dev-app` runs backend + frontend.
-- `make dev-cloud` runs backend + cloud worker + frontend.
-- `make backend`, `make frontend`, `make worker`, and `make cloud-worker` run one service.
+Other entrypoints: `make backend`, `make frontend` run one service each.
+`make serve` runs the backend serving the prebuilt frontend (deployment
+topology).
 
 ## Validate
 
@@ -70,25 +65,30 @@ independently runs the same validation and remains the authoritative check.
 
 ## Environment
 
-Copy `.env.example` to the package or shell environment you are running. Local
-dev can use `AUTH_MODE=dev`; Google auth and billing settings are only required
-when exercising those flows. The cloud worker requires `DEEPSEEK_API_KEY`.
+Copy `srt-backend/.env.example` to `srt-backend/.env`. Local dev can use
+`AUTH_MODE=dev`; Google auth and billing settings are only required when
+exercising those flows.
+
+Translation runs in-process against an `LLM_BACKENDS` registry — choosing
+cloud (DeepSeek) vs. local (mlx-platform gateway) is a config decision, not a
+separate service. Cloud deploy sets `LLM_BACKENDS=cloud`; local dev/test
+additionally enables `mlx` (see `srt-backend/.env.example`).
 
 Key variables:
 
 - `ENV`: `dev`, `staging`, or `prod`.
 - `AUTH_MODE`: `dev` or `google`.
-- `WORKERS`: backend worker registry, default `mlx=http://localhost:5732,cloud=http://localhost:5733`.
+- `LLM_BACKENDS`: enabled translation backend ids, default `mlx,cloud`.
 - `DATABASE_URL`: backend SQLite URL, default `sqlite:///./.data/dev/db.sqlite`.
-- `DEEPSEEK_API_KEY`: required by `srt-cloud-worker`.
+- `DEEPSEEK_API_KEY`: required when the `cloud` backend is enabled.
+- `MLX_PLATFORM_BASE_URL`: mlx-platform gateway URL, required when the `mlx` backend is enabled.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `JWT_SECRET`: required for Google auth.
 - `BILLING_REF_SECRET`: required when billing routes are configured.
 
 ## Layout
 
-- `srt-backend/`: FastAPI app and backend library packages under `pkg-*`.
+- `srt-backend/`: FastAPI app and backend library packages under `pkg-*`,
+  including `pkg-translator` (translation batching/validation core) and
+  `pkg-llm-backend` (the in-process OpenAI-client LLM backend registry).
 - `srt-frontend/`: Vite + React + TypeScript SPA.
-- `pkg-translator/`: shared translation worker contracts and batching logic.
-- `srt-cloud-worker/`: DeepSeek-backed translation worker.
-- `srt-mlx-worker/`: local Apple-silicon MLX translation worker.
 - `PLAN.md`: delivery plan and feature slices.

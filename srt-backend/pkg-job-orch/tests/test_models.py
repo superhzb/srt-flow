@@ -8,6 +8,8 @@ from pkg_job_orch.api import (
     DEV_USER_ID,
     Job,
     User,
+    dropped_from_json,
+    dropped_to_json,
     get_engine,
     tgt_langs_from_csv,
     tgt_langs_to_csv,
@@ -23,6 +25,12 @@ def test_tgt_langs_round_trip() -> None:
     assert tgt_langs_to_csv([]) == ""
 
 
+def test_dropped_counts_json_round_trip() -> None:
+    assert dropped_to_json({"fr": 2, "es": 0}) == '{"es":0,"fr":2}'
+    assert dropped_from_json('{"fr":2,"es":0}') == {"fr": 2, "es": 0}
+    assert dropped_from_json(None) == {}
+
+
 def test_job_defaults(temp_db: str) -> None:
     with Session(get_engine()) as s:
         s.add(User(id=DEV_USER_ID, email="dev@local"))
@@ -34,7 +42,12 @@ def test_job_defaults(temp_db: str) -> None:
     assert job.progress == 0.0
     assert job.error is None
     assert job.finished_at is None
+    assert job.started_at is None
+    assert job.error_kind is None
+    assert job.dropped_by_target is None
+    assert job.attempts == 0
     assert job.tgt_langs == ""  # server_default from migration / SQLModel default
+    assert job.carried_langs == ""
     assert isinstance(job.created_at, datetime)
 
 

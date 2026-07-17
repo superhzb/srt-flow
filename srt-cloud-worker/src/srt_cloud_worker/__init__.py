@@ -1,1 +1,0 @@
-"""srt-cloud-worker package."""

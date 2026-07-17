@@ -1,7 +1,6 @@
-# Repo-root tooling config. Not a uv workspace — the three deploy targets
-# (srt-backend app tree, srt-cloud-worker, srt-mlx-worker) must remain
-# separately-installable so the Linux cloud image never pulls mlx_lm and the
-# Mac image never pulls openai.
+# Repo-root tooling config. Not a uv workspace itself — `srt-backend` is its
+# own uv workspace (app + pkg-* members, including pkg-translator and
+# pkg-llm-backend); `srt-frontend` is the separate npm project.
 #
 # Ruff discovers this config by walking up from the target file, so every
 # package below inherits it as long as no intermediate pyproject overrides

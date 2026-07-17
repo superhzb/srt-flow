@@ -31,6 +31,46 @@ export function useJobOutput(url: string, enabled: boolean) {
   return { text, error };
 }
 
+/**
+ * Smooth a coarse, jumpy progress signal into a monotonic display value.
+ *
+ * The worker reports progress per *batch* and we poll only every ~1.5s, so a
+ * short job's real progress goes 0 → 100 with nothing in between (#—). This
+ * eases a time-based estimate toward a 90% asymptote while `active`, always
+ * takes the max of (previous display, estimate, real) so it never rewinds, and
+ * lets the real backend value win whenever it is higher. On the terminal tick
+ * (`active` false) it snaps to `realPct` (100 when done).
+ *
+ * `etaSeconds` (when the backend supplies one) sets the easing time constant so
+ * the estimate paces roughly with the true remaining time.
+ */
+export function useSmoothProgress(
+  realPct: number,
+  active: boolean,
+  etaSeconds: number | null,
+): number {
+  const [display, setDisplay] = useState(0);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      startRef.current = null;
+      setDisplay((d) => Math.max(d, realPct));
+      return;
+    }
+    if (startRef.current === null) startRef.current = Date.now();
+    const tau = etaSeconds && etaSeconds > 0 ? etaSeconds * 1000 : 20000;
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - (startRef.current ?? Date.now());
+      const estimate = 90 * (1 - Math.exp(-elapsed / tau));
+      setDisplay((d) => Math.min(99, Math.max(d, estimate, realPct)));
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [active, realPct, etaSeconds]);
+
+  return Math.round(display);
+}
+
 interface PollState<T> {
   result: T | null;
   error: string | null;

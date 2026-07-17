@@ -8,8 +8,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
-from pkg_auth.config import load_settings
-from pkg_auth.dependencies import get_current_user, require_tier
+from pkg_auth.config import AuthSettings, load_settings
+from pkg_auth.dependencies import get_current_user, is_admin, require_tier
 from pkg_auth.google import router as google_router
 from pkg_auth.models import User
 
@@ -25,8 +25,17 @@ router.include_router(google_router)
 
 
 @router.get("/me")
-async def me(user: Annotated[User, Depends(get_current_user)]) -> dict[str, str]:
-    return {"email": user.email, "tier": user.tier}
+async def me(
+    user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[AuthSettings, Depends(load_settings)],
+) -> dict[str, str | bool]:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "tier": user.tier,
+        "is_admin": is_admin(user, settings),
+        "created_at": user.created_at.isoformat(),
+    }
 
 
 @router.post("/logout")

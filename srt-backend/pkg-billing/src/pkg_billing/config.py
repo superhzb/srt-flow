@@ -32,12 +32,12 @@ __all__ = [
 @dataclass(frozen=True, slots=True)
 class BillingConfig:
     env: str
-    payment_link: str | None
     ref_secret: str
     webhook_secret: str | None
     free_tier_monthly_limit: int
     stripe_secret: str | None = None
-    stripe_price_id: str | None = None
+    stripe_small_price_id: str | None = None
+    stripe_large_price_id: str | None = None
     app_base_url: str | None = None
 
 
@@ -45,20 +45,20 @@ class BillingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     env: str = "dev"
-    billing_payment_link: str | None = None
     billing_ref_secret: str | None = None
     stripe_webhook_secret: str | None = None
-    free_tier_monthly_limit: int = 10
+    free_tier_monthly_limit: int = 30
     stripe_secret: str | None = None
-    stripe_price_id: str | None = None
+    stripe_small_price_id: str | None = None
+    stripe_large_price_id: str | None = None
     app_base_url: str | None = None
 
     @field_validator(
-        "billing_payment_link",
         "billing_ref_secret",
         "stripe_webhook_secret",
         "stripe_secret",
-        "stripe_price_id",
+        "stripe_small_price_id",
+        "stripe_large_price_id",
         "app_base_url",
         mode="before",
     )
@@ -71,7 +71,7 @@ class BillingSettings(BaseSettings):
     @field_validator("free_tier_monthly_limit", mode="before")
     @classmethod
     def _empty_int_to_default(cls, value: object) -> object:
-        return 10 if value in ("", None) else value
+        return 30 if value in ("", None) else value
 
 
 @lru_cache(maxsize=1)
@@ -97,59 +97,46 @@ def get_config() -> BillingConfig:
         raise RuntimeError("FREE_TIER_MONTHLY_LIMIT must be non-negative")
 
     stripe_secret = settings.stripe_secret
-    stripe_price_id = settings.stripe_price_id
+    stripe_small_price_id = settings.stripe_small_price_id
+    stripe_large_price_id = settings.stripe_large_price_id
     app_base_url = settings.app_base_url
     checkout_fields = {
         "STRIPE_SECRET": stripe_secret,
-        "STRIPE_PRICE_ID": stripe_price_id,
+        "STRIPE_SMALL_PRICE_ID": stripe_small_price_id,
+        "STRIPE_LARGE_PRICE_ID": stripe_large_price_id,
         "APP_BASE_URL": app_base_url,
     }
     configured = [name for name, value in checkout_fields.items() if value is not None]
     if configured and len(configured) != len(checkout_fields):
-        raise RuntimeError("STRIPE_SECRET, STRIPE_PRICE_ID, and APP_BASE_URL must be set together")
+        raise RuntimeError(
+            "STRIPE_SECRET, STRIPE_SMALL_PRICE_ID, STRIPE_LARGE_PRICE_ID, "
+            "and APP_BASE_URL must be set together"
+        )
 
-    has_checkout_trio = (
-        stripe_secret is not None and stripe_price_id is not None and app_base_url is not None
-    )
-    if has_checkout_trio:
-        assert stripe_secret is not None and app_base_url is not None
+    if stripe_secret is not None:
+        assert app_base_url is not None
         _validate_stripe_secret(settings.env, stripe_secret)
         _validate_app_base_url(app_base_url)
 
-    payment_link = settings.billing_payment_link
-    if has_checkout_trio:
-        # Payment Link is optional when Checkout Sessions are configured.
-        if payment_link is not None:
-            _validate_payment_link(settings.env, payment_link)
-    else:
-        if payment_link is None:
-            raise RuntimeError("BILLING_PAYMENT_LINK is required")
-        _validate_payment_link(settings.env, payment_link)
-
     return BillingConfig(
         env=settings.env,
-        payment_link=payment_link,
         ref_secret=ref_secret,
         webhook_secret=settings.stripe_webhook_secret,
         free_tier_monthly_limit=settings.free_tier_monthly_limit,
         stripe_secret=stripe_secret,
-        stripe_price_id=stripe_price_id,
+        stripe_small_price_id=stripe_small_price_id,
+        stripe_large_price_id=stripe_large_price_id,
         app_base_url=app_base_url,
     )
 
 
-def _validate_payment_link(env: str, payment_link: str) -> None:
-    if not payment_link.startswith("https://buy.stripe.com/"):
-        raise RuntimeError("BILLING_PAYMENT_LINK must be a Stripe Payment Link")
-    if "replace_me" in payment_link:
-        raise RuntimeError("BILLING_PAYMENT_LINK must be set to a real Stripe Payment Link")
-    if env != "prod" and not payment_link.startswith("https://buy.stripe.com/test_"):
-        raise RuntimeError("Non-prod BILLING_PAYMENT_LINK must be a test-mode Stripe Payment Link")
-
-
 def _validate_stripe_secret(env: str, stripe_secret: str) -> None:
-    if env != "prod" and not stripe_secret.startswith("sk_test_"):
+    is_test = stripe_secret.startswith("sk_test_")
+    is_live = stripe_secret.startswith("sk_live_")
+    if env != "prod" and not is_test:
         raise RuntimeError("Non-prod STRIPE_SECRET must be a test-mode Stripe secret key")
+    if env == "prod" and not is_live:
+        raise RuntimeError("Prod STRIPE_SECRET must be a live-mode Stripe secret key")
 
 
 def _validate_app_base_url(app_base_url: str) -> None:

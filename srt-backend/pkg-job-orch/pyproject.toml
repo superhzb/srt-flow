@@ -12,9 +12,10 @@ version = "0.1.0"
 dependencies = [
   "alembic>=1.13.0",
   "fastapi>=0.116.0",
-  "httpx>=0.28.0",
   "pkg-file-upload",
+  "pkg-llm-backend",
   "pkg-srt-services",
+  "pkg-translator",
   "pydantic-settings>=2.10.0",
   "sqlmodel>=0.0.22",
 ]
@@ -30,7 +31,9 @@ dev = [
 
 [tool.uv.sources]
 pkg-file-upload = { workspace = true }
+pkg-llm-backend = { workspace = true }
 pkg-srt-services = { workspace = true }
+pkg-translator = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pkg_job_orch"]

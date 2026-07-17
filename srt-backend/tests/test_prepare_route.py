@@ -35,6 +35,7 @@ def test_prepare_returns_cues_and_detected_english() -> None:
     assert body["cues"][0]["index"] == 1
     assert body["detected_lang"] == "en"
     assert body["confidence"] >= 0.5
+    assert body["bilingual"] is None
 
 
 def test_prepare_detects_traditional_chinese() -> None:
@@ -51,6 +52,25 @@ def test_prepare_rejects_wrong_extension() -> None:
 def test_prepare_rejects_unparseable() -> None:
     resp = client.post("/api/srt/prepare", files=_files(b"1\nnot a timespan\nHi\n"))
     assert resp.status_code == 400
+
+
+def test_prepare_rate_limit_and_forwarded_client_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PREPARE_RATE_LIMIT", "2")
+    monkeypatch.setenv("PREPARE_RATE_WINDOW_SECONDS", "600")
+    headers = {"x-forwarded-for": "198.51.100.10"}
+    assert client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers).status_code == 200
+    assert client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers).status_code == 200
+    limited = client.post("/api/srt/prepare", files=_files(EN_SRT), headers=headers)
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+
+    other_client = {"x-forwarded-for": "198.51.100.11"}
+    assert (
+        client.post("/api/srt/prepare", files=_files(EN_SRT), headers=other_client).status_code
+        == 200
+    )
 
 
 if __name__ == "__main__":

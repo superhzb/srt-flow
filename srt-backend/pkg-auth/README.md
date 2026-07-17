@@ -22,6 +22,7 @@ root.
 
 ## Config And Credentials
 
-This package may own config/env loading and credential discovery when needed for
-internal use. Load config/env at explicit runtime boundaries. Do not hard-code
-secrets, commit credentials, or log secret values.
+This package reads configuration from the process environment. The composing
+backend application owns dotenv loading; standalone consumers must inject the
+environment themselves. Do not hard-code secrets, commit credentials, or log
+secret values.

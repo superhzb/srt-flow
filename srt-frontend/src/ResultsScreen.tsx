@@ -23,7 +23,7 @@ export function ResultsScreen({
           <h2 className="text-lg font-semibold">
             Translated · {results.length}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             job <span className="font-mono">{jobId.slice(0, 8)}</span> · outputs
             saved
           </p>
@@ -32,14 +32,14 @@ export function ResultsScreen({
           <button
             type="button"
             onClick={onViewJobs}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
           >
             View jobs
           </button>
           <button
             type="button"
             onClick={onRestart}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle"
           >
             New translation
           </button>
@@ -63,13 +63,13 @@ function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
   const baseName = jobId.slice(0, 8);
 
   return (
-    <div className="rounded-lg border border-slate-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+    <div className="rounded-lg border border-border overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-surface-subtle border-b border-border">
         <div>
           <span className="font-semibold">{result.lang}</span>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-slate-700">
+          <label className="flex items-center gap-1.5 text-sm text-ink-muted">
             <input
               type="checkbox"
               checked={showSrt}
@@ -80,7 +80,7 @@ function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
           <a
             href={result.download_url}
             download={`${baseName}.${result.lang}.srt`}
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-soft0"
           >
             Download
           </a>
@@ -90,14 +90,14 @@ function ResultPanel({ jobId, result }: { jobId: string; result: JobResult }) {
         error ? (
           <div className="p-4 text-sm text-red-700">Error: {error}</div>
         ) : text === null ? (
-          <div className="p-4 text-sm text-slate-500">Loading…</div>
+          <div className="p-4 text-sm text-faint">Loading…</div>
         ) : (
-          <pre className="bg-slate-900 text-slate-100 p-4 overflow-auto text-xs max-h-96">
+          <pre className="bg-[#090a0d] text-white p-4 overflow-auto text-xs max-h-96">
             {text}
           </pre>
         )
       ) : (
-        <div className="p-4 text-sm text-slate-600">
+        <div className="p-4 text-sm text-ink-muted">
           output saved · toggle raw .srt to preview.
         </div>
       )}

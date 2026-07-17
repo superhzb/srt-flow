@@ -1,6 +1,95 @@
 // Shared client utilities: error normalisation + a fetch wrapper that
 // centralises the repeated `fetch -> if(!ok) throw readError -> json` pattern.
 
+import { SUPPORTED_LANGS, type LangCode } from "./demoLine.ts";
+
+const SUPPORTED = new Set<string>(SUPPORTED_LANGS);
+
+/** Default target when the visitor's language can't be resolved to a supported one. */
+export const DEFAULT_TARGET: LangCode = "fr";
+
+/** Region subtags -> language for English speakers in bilingual/other regions. */
+const REGION_TO_LANG: Record<string, LangCode> = {
+  CA: "fr",
+  ES: "es",
+  DE: "de",
+  AT: "de",
+  CH: "de",
+  BR: "pt",
+  PT: "pt",
+  JP: "ja",
+  KR: "ko",
+  TW: "zh-TW",
+  HK: "zh-TW",
+  CN: "zh",
+  SG: "zh",
+};
+
+/** IANA timezones -> language, a last resort for English browsers. */
+const TZ_TO_LANG: Record<string, LangCode> = {
+  "America/Montreal": "fr",
+  "America/Toronto": "fr",
+  "Europe/Paris": "fr",
+  "Europe/Madrid": "es",
+  "Europe/Berlin": "de",
+  "Europe/Vienna": "de",
+  "Europe/Zurich": "de",
+  "Europe/Lisbon": "pt",
+  "America/Sao_Paulo": "pt",
+  "Asia/Tokyo": "ja",
+  "Asia/Seoul": "ko",
+  "Asia/Shanghai": "zh",
+  "Asia/Taipei": "zh-TW",
+  "Asia/Hong_Kong": "zh-TW",
+};
+
+/** Map one BCP-47 tag to a supported code, or null. */
+function matchLang(tag: string): LangCode | null {
+  const lower = tag.toLowerCase();
+  // Traditional Chinese: script or region markers.
+  if (lower.startsWith("zh") && /(^|-)(hant|tw|hk|mo)(-|$)/.test(lower)) {
+    return "zh-TW";
+  }
+  if (lower.startsWith("zh")) return "zh";
+  const base = lower.split("-")[0];
+  return SUPPORTED.has(base) ? (base as LangCode) : null;
+}
+
+/**
+ * Pick the bilingual demo's target language from the visitor's browser.
+ *
+ * - First supported browser language wins.
+ * - English is skipped as a target (an EN+EN demo is pointless): fall back to the
+ *   region subtag, then the timezone.
+ * - Nothing resolves -> DEFAULT_TARGET ("fr").
+ *
+ * Pure: inject `langs`/`timeZone` so it stays unit-testable.
+ */
+export function detectTargetLang(
+  langs: readonly string[] = typeof navigator !== "undefined"
+    ? (navigator.languages ?? [navigator.language])
+    : [],
+  timeZone: string = typeof Intl !== "undefined"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : "",
+): LangCode {
+  let sawEnglish = false;
+  for (const tag of langs) {
+    if (!tag) continue;
+    const m = matchLang(tag);
+    if (m && m !== "en") return m;
+    if (m === "en" || tag.toLowerCase().startsWith("en")) {
+      sawEnglish = true;
+      // An English tag may still carry a bilingual region, e.g. "en-CA".
+      const region = tag.split("-")[1]?.toUpperCase();
+      if (region && REGION_TO_LANG[region]) return REGION_TO_LANG[region];
+    }
+  }
+  if (sawEnglish && timeZone && TZ_TO_LANG[timeZone])
+    return TZ_TO_LANG[timeZone];
+  return DEFAULT_TARGET;
+}
+
 // FastAPI HTTPException detail can be a string or a list of field errors;
 // normalise both into a single message.
 function extractDetail(maybe: unknown, fallback: string): string {
@@ -45,4 +134,25 @@ export async function apiFetch<T>(
   const resp = await fetch(url, init);
   if (!resp.ok) throw await readError(resp, `${fallback} (${resp.status})`);
   return (await resp.json()) as T;
+}
+
+export function formatCurrency(cents: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(cents / 100);
+}
+
+export function formatLedgerDate(value: string): string {
+  const date = new Date(value);
+  const elapsed = Date.now() - date.getTime();
+  if (elapsed >= 0 && elapsed < 60_000) return "Just now";
+  if (elapsed >= 0 && elapsed < 3_600_000) {
+    return `${Math.floor(elapsed / 60_000)}m ago`;
+  }
+  if (elapsed >= 0 && elapsed < 86_400_000) {
+    return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  }
+  if (elapsed >= 0 && elapsed < 172_800_000) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

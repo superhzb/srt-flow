@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pkg-llm-backend"
+description = "Internal LLM backend package (in-process OpenAI-client registry for cloud + local mlx-platform)."
+readme = "README.md"
+authors = [{ name = "Brett" }]
+requires-python = ">=3.12"
+version = "0.1.0"
+dependencies = [
+  "openai>=1.40.0",
+  "pkg-translator",
+]
+
+[dependency-groups]
+dev = [
+  "build>=1.2.0",
+  "pyright>=1.1.400",
+  "pytest>=8.3.0",
+  "ruff>=0.11.0",
+]
+
+[tool.uv.sources]
+pkg-translator = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pkg_llm_backend"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["src", "tests"]
+venvPath = ".."
+venv = ".venv"

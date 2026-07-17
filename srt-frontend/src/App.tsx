@@ -1,69 +1,118 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   errMessage,
+  getBillingBalance,
+  getMe,
+  googleLoginUrl,
+  logout,
   prepareSrt,
   startJob,
-  type JobResult,
-  type PrepareResponse,
+  type BillingBalance,
+  type JobStatusResponse,
+  type Me,
 } from "./api.ts";
-import { AuthScreen } from "./AuthScreen.tsx";
 import { BillingScreen } from "./BillingScreen.tsx";
-import { CuesView } from "./CuesView.tsx";
-import { ConfigureScreen } from "./ConfigureScreen.tsx";
-import { DbScreen } from "./DbScreen.tsx";
+import { ConfigureScreen, type FileEntry } from "./ConfigureScreen.tsx";
 import { ErrorBanner } from "./components.tsx";
 import { JobsScreen } from "./JobsScreen.tsx";
+import { LandingScreen } from "./LandingScreen.tsx";
 import { ProcessingScreen } from "./ProcessingScreen.tsx";
-import { ResultsScreen } from "./ResultsScreen.tsx";
+import { Button, Card, FlowLogo, SectionHeader } from "./ui.tsx";
+import { DecisionModal } from "./DecisionModal.tsx";
+import { DemoProcessing } from "./DemoProcessing.tsx";
+import { DEMO_CUES, DEMO_FILENAME, sampleFile } from "./demoFixtures.ts";
+import {
+  clearClientRecords,
+  saveDemoEntry,
+  savePendingTranslation,
+  takePendingTranslation,
+} from "./clientStorage.ts";
 
-type State =
-  | { kind: "idle" }
-  | { kind: "parsing"; fileName: string }
-  | { kind: "parseError"; message: string }
-  | {
-      kind: "configure";
-      fileName: string;
-      prepare: PrepareResponse;
-    }
-  | {
-      kind: "translating";
-      fileName: string;
-      prepare: PrepareResponse;
-      workerId: string;
-      workerLabel: string;
-      sourceLang: string;
-      targets: string[];
-      jobId: string;
-    }
-  | {
-      kind: "translateError";
-      fileName: string;
-      prepare: PrepareResponse;
-      message: string;
-    }
-  | {
-      kind: "results";
-      fileName: string;
-      prepare: PrepareResponse;
-      jobId: string;
-      results: JobResult[];
-    };
-
-type Tab = "upload" | "jobs" | "db" | "auth" | "billing";
+type EnqueuedJob = { entry: FileEntry; jobId: string };
+type EnqueueFailure = { entry: FileEntry; message: string };
+type Stage = "idle" | "configure" | "demo" | "enqueuing" | "enqueued";
+type Workflow = {
+  stage: Stage;
+  entries: FileEntry[];
+  worker: string;
+  targets: string[];
+  jobs: EnqueuedJob[];
+  enqueueFailures: EnqueueFailure[];
+  terminalJobs: Record<string, JobStatusResponse>;
+};
+type Tab = "translate" | "jobs" | "billing";
 type Theme = "light" | "dark";
+
+const ACCEPT = ".srt";
+const EMPTY_WORKFLOW: Workflow = {
+  stage: "idle",
+  entries: [],
+  worker: "cloud",
+  targets: [],
+  jobs: [],
+  enqueueFailures: [],
+  terminalJobs: {},
+};
+export const MAX_BATCH = 20;
 
 function initialTheme(): Theme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
+function validateFile(file: File): string | null {
+  if (!file.name.toLowerCase().endsWith(".srt"))
+    return "must have a .srt extension";
+  if (file.size === 0) return "is empty";
+  if (file.size > 4 * 1024 * 1024) return "exceeds the 4 MiB limit";
+  return null;
+}
+
 export default function App() {
-  const [state, setState] = useState<State>({ kind: "idle" });
-  const [tab, setTab] = useState<Tab>("upload");
+  const [session, setSession] = useState<Me | null | undefined>(undefined);
+  const [workflow, setWorkflow] = useState<Workflow>(EMPTY_WORKFLOW);
+  const [tab, setTab] = useState<Tab>("translate");
+  const [showLanding, setShowLanding] = useState(
+    () => window.location.pathname === "/",
+  );
+  const [decisionOpen, setDecisionOpen] = useState(false);
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeBalance, setWelcomeBalance] = useState<
+    BillingBalance | null | undefined
+  >(undefined);
   const [checkoutStatus, setCheckoutStatus] = useState<
     "success" | "cancel" | null
   >(null);
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(
+    null,
+  );
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const configureRef = useRef<HTMLElement>(null);
+  const processingRef = useRef<HTMLElement>(null);
+  const previousStage = useRef<Stage>("idle");
+  const translateButtonRef = useRef<HTMLButtonElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -71,18 +120,78 @@ export default function App() {
     try {
       localStorage.setItem("theme", theme);
     } catch {
-      // Keep the toggle functional when storage is unavailable.
+      /* unavailable */
     }
   }, [theme]);
+
+  useEffect(() => {
+    let live = true;
+    getMe()
+      .then((me) => {
+        if (!live) return;
+        setSession(me);
+        if (me && window.location.pathname === "/") {
+          window.history.replaceState({}, "", "/app");
+          setShowLanding(false);
+        }
+      })
+      .catch(() => {
+        if (live) setSession(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    let live = true;
+    takePendingTranslation()
+      .then((pending) => {
+        if (!live || !pending) return;
+        setWorkflow({
+          ...EMPTY_WORKFLOW,
+          stage: "configure",
+          entries: pending.entries,
+          worker: pending.worker,
+          targets: pending.targets,
+        });
+        setTab("translate");
+        setShowLanding(false);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    let live = true;
+    setWelcomeOpen(true);
+    setWelcomeBalance(undefined);
+    getBillingBalance()
+      .then((value) => {
+        if (live) setWelcomeBalance(value);
+      })
+      .catch(() => {
+        if (live) setWelcomeBalance(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [session]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
     const checkout = url.searchParams.get("checkout");
     if (checkout !== "success" && checkout !== "cancel") return;
-
+    const sessionId = url.searchParams.get("session_id");
     setTab("billing");
     setCheckoutStatus(checkout);
+    setCheckoutSessionId(sessionId);
     url.searchParams.delete("checkout");
+    url.searchParams.delete("session_id");
     window.history.replaceState(
       {},
       "",
@@ -90,251 +199,665 @@ export default function App() {
     );
   }, []);
 
-  async function submit(file: File) {
-    setState({ kind: "parsing", fileName: file.name });
-    try {
-      const prepare = await prepareSrt(file);
-      setState({ kind: "configure", fileName: file.name, prepare });
-    } catch (e) {
-      setState({
-        kind: "parseError",
-        message: errMessage(e, "request failed"),
-      });
-    }
-  }
+  useEffect(() => {
+    if (workflow.stage === previousStage.current) return;
+    const target =
+      workflow.stage === "configure"
+        ? configureRef.current
+        : workflow.stage === "demo" ||
+            workflow.stage === "enqueuing" ||
+            workflow.stage === "enqueued"
+          ? processingRef.current
+          : null;
+    previousStage.current = workflow.stage;
+    requestAnimationFrame(() =>
+      target?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    );
+  }, [workflow.stage]);
 
-  function handleProcess(
-    workerId: string,
-    workerLabel: string,
-    sourceLang: string,
-    targets: string[],
-  ) {
-    if (state.kind !== "configure") return;
-    startJob({
-      cues: state.prepare.cues,
-      sourceLang,
-      targets,
-      worker: workerId,
-    })
-      .then(({ job_id }) => {
-        setState({
-          kind: "translating",
-          fileName: state.fileName,
-          prepare: state.prepare,
-          workerId,
-          workerLabel,
-          sourceLang,
-          targets,
-          jobId: job_id,
+  function parseEntry(entry: FileEntry) {
+    const generation = entry.generation;
+    prepareSrt(entry.file)
+      .then((prepare) => {
+        setWorkflow((previous) => {
+          if (previous.stage !== "configure") return previous;
+          const current = previous.entries.find((item) => item.id === entry.id);
+          if (
+            !current ||
+            current.status !== "parsing" ||
+            current.generation !== generation
+          )
+            return previous;
+          return {
+            ...previous,
+            entries: previous.entries.map((item) =>
+              item.id === entry.id
+                ? {
+                    ...item,
+                    status: "ready",
+                    prepare,
+                    sourceLang: prepare.bilingual
+                      ? prepare.bilingual.line_langs[0]
+                      : (prepare.detected_lang ?? ""),
+                    sourceLine: prepare.bilingual ? 0 : undefined,
+                    error: undefined,
+                  }
+                : item,
+            ),
+          };
         });
       })
-      .catch((e: unknown) => {
-        setState({
-          kind: "translateError",
-          fileName: state.fileName,
-          prepare: state.prepare,
-          message: errMessage(e, "failed to start translation"),
+      .catch((error: unknown) => {
+        setWorkflow((previous) => {
+          if (previous.stage !== "configure") return previous;
+          const current = previous.entries.find((item) => item.id === entry.id);
+          if (
+            !current ||
+            current.status !== "parsing" ||
+            current.generation !== generation
+          )
+            return previous;
+          return {
+            ...previous,
+            entries: previous.entries.map((item) =>
+              item.id === entry.id
+                ? {
+                    ...item,
+                    status: "error",
+                    error: errMessage(error, "failed to parse file"),
+                  }
+                : item,
+            ),
+          };
         });
       });
   }
 
-  function handleDone(jobId: string, results: JobResult[]) {
-    setState((prev) =>
-      prev.kind === "translating"
-        ? {
-            kind: "results",
-            fileName: prev.fileName,
-            prepare: prev.prepare,
-            jobId,
-            results,
-          }
-        : prev,
+  function submit(files: File[]) {
+    const entries = files.map<FileEntry>((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      name: file.name,
+      status: "parsing",
+      generation: 0,
+    }));
+    setWorkflow({ ...EMPTY_WORKFLOW, stage: "configure", entries });
+    entries.forEach(parseEntry);
+  }
+
+  function updateEntries(change: (entries: FileEntry[]) => FileEntry[]) {
+    setWorkflow((previous) => {
+      if (previous.stage !== "configure") return previous;
+      const entries = change(previous.entries);
+      return entries.length === 0 ? EMPTY_WORKFLOW : { ...previous, entries };
+    });
+  }
+
+  function retry(id: string) {
+    if (workflow.stage !== "configure") return;
+    const current = workflow.entries.find((entry) => entry.id === id);
+    if (!current) return;
+    const retried: FileEntry = {
+      ...current,
+      status: "parsing",
+      generation: current.generation + 1,
+      error: undefined,
+      prepare: undefined,
+      sourceLang: undefined,
+      sourceLine: undefined,
+    };
+    setWorkflow((previous) => ({
+      ...previous,
+      entries: previous.entries.map((entry) =>
+        entry.id === id ? retried : entry,
+      ),
+    }));
+    parseEntry(retried);
+  }
+
+  function handleProcess() {
+    if (!session) {
+      setDecisionError(null);
+      setDecisionOpen(true);
+      return;
+    }
+    void startRealProcessing();
+  }
+
+  async function startRealProcessing() {
+    if (workflow.stage !== "configure") return;
+    const { worker, targets } = workflow;
+    const snapshot = workflow.entries;
+    const carriedLanguage = (entry: FileEntry) => {
+      const langs = entry.prepare?.bilingual?.line_langs;
+      return langs && entry.sourceLine !== undefined
+        ? langs[1 - entry.sourceLine]
+        : undefined;
+    };
+    const entries = snapshot.filter(
+      (entry) =>
+        entry.status === "ready" &&
+        entry.prepare &&
+        entry.sourceLang &&
+        targets.some(
+          (target) =>
+            target !== entry.sourceLang && target !== carriedLanguage(entry),
+        ),
     );
+    setWorkflow((previous) => ({
+      ...previous,
+      stage: "enqueuing",
+      worker,
+      targets,
+    }));
+    const jobs: EnqueuedJob[] = [];
+    const enqueueFailures: EnqueueFailure[] = [];
+    for (let offset = 0; offset < entries.length; offset += 4) {
+      const chunk = entries.slice(offset, offset + 4);
+      const results = await Promise.allSettled(
+        chunk.map((entry) =>
+          startJob({
+            cues: entry.prepare!.cues,
+            sourceLang: entry.sourceLang!,
+            sourceLine: entry.sourceLine,
+            targets: targets.filter(
+              (target) =>
+                target !== entry.sourceLang &&
+                target !== carriedLanguage(entry),
+            ),
+            worker,
+            filename: entry.name,
+          }),
+        ),
+      );
+      results.forEach((result, index) => {
+        const entry = chunk[index];
+        if (result.status === "fulfilled")
+          jobs.push({ entry, jobId: result.value.job_id });
+        else
+          enqueueFailures.push({
+            entry,
+            message: errMessage(result.reason, "failed to queue"),
+          });
+      });
+    }
+    setWorkflow((previous) => ({
+      ...previous,
+      stage: "enqueued",
+      jobs,
+      enqueueFailures,
+    }));
   }
 
-  function handleError(message: string) {
-    setState((prev) =>
-      prev.kind === "translating"
-        ? {
-            kind: "translateError",
-            fileName: prev.fileName,
-            prepare: prev.prepare,
-            message,
-          }
-        : prev,
+  async function signInWithPendingWork() {
+    if (workflow.stage !== "configure") return;
+    await savePendingTranslation({
+      schemaVersion: 1,
+      createdAt: Date.now(),
+      entries: workflow.entries,
+      worker: workflow.worker,
+      targets: workflow.targets,
+    });
+    window.location.href = googleLoginUrl();
+  }
+
+  function startDemo() {
+    const targets = workflow.targets.filter((target) => target !== "en");
+    const missing = targets.find((target) => !DEMO_CUES[target]);
+    if (!targets.length || missing) {
+      setDecisionError(
+        missing
+          ? `The sample has no fixture for ${missing}. Pick a supported language.`
+          : "Pick at least one target language other than English for the sample demo.",
+      );
+      return;
+    }
+    setDecisionOpen(false);
+    setWorkflow((previous) => ({ ...previous, stage: "demo" }));
+  }
+
+  const completeDemo = useCallback(() => {
+    const targets = workflow.targets.filter(
+      (target) => target !== "en" && Boolean(DEMO_CUES[target]),
     );
+    const id = crypto.randomUUID();
+    void saveDemoEntry({
+      schemaVersion: 1,
+      id,
+      createdAt: Date.now(),
+      filename: DEMO_FILENAME,
+      sourceLang: "en",
+      targetLangs: targets,
+      cuesByLanguage: Object.fromEntries(
+        ["en", ...targets].map((lang) => [lang, DEMO_CUES[lang]]),
+      ),
+    }).then(() => {
+      setWorkflow(EMPTY_WORKFLOW);
+      setTab("jobs");
+    });
+  }, [workflow.targets]);
+
+  async function handleLogout() {
+    setAccountMenuOpen(false);
+    try {
+      await logout();
+    } finally {
+      await clearClientRecords();
+    }
+    setSession(null);
+    setWorkflow(EMPTY_WORKFLOW);
+    setTab("translate");
+    setShowLanding(true);
+    window.history.replaceState({}, "", "/");
   }
 
-  function restart() {
-    setState({ kind: "idle" });
-    setTab("upload");
+  function openStudio() {
+    setWorkflow(EMPTY_WORKFLOW);
+    setShowLanding(false);
+    setTab("translate");
+    window.history.replaceState({}, "", "/app");
   }
 
-  const inUploadPhase =
-    state.kind === "idle" ||
-    state.kind === "parsing" ||
-    state.kind === "parseError";
+  function openTranslate() {
+    setWorkflow(EMPTY_WORKFLOW);
+    setShowLanding(false);
+    setTab("translate");
+    window.history.replaceState({}, "", "/app");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
+  function openHome() {
+    setShowLanding(true);
+    window.history.replaceState({}, "", "/");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openTab(nextTab: Tab) {
+    if (nextTab === "billing" && !session) {
+      setLoginPromptOpen(true);
+      return;
+    }
+    if (nextTab === "translate") {
+      openTranslate();
+      return;
+    }
+    setShowLanding(false);
+    setTab(nextTab);
+    window.history.replaceState({}, "", "/app");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function viewResults() {
+    setWorkflow(EMPTY_WORKFLOW);
+    setTab("jobs");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const handleJobTerminal = useCallback(
+    (jobId: string, result: JobStatusResponse) => {
+      setWorkflow((previous) =>
+        previous.terminalJobs[jobId]
+          ? previous
+          : {
+              ...previous,
+              terminalJobs: { ...previous.terminalJobs, [jobId]: result },
+            },
+      );
+    },
+    [],
+  );
+
+  const restart = useCallback(() => {
+    setWorkflow(EMPTY_WORKFLOW);
+    setTab("translate");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const doneJobs = workflow.jobs.filter(
+    (job) => workflow.terminalJobs[job.jobId]?.status === "done",
+  );
+  const failedJobs = workflow.jobs.filter(
+    (job) => workflow.terminalJobs[job.jobId]?.status === "failed",
+  );
+  const processingComplete =
+    workflow.stage === "enqueued" &&
+    workflow.jobs.every((job) => Boolean(workflow.terminalJobs[job.jobId]));
+
+  if (session === undefined) return <div className="min-h-screen bg-surface" />;
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">srt-flow</h1>
-            <p className="text-sm text-slate-600 mt-1">
-              Slice 7 — translate an <code>.srt</code> file. Jobs persist across
-              restarts.
-            </p>
+    <div className="min-h-screen bg-page text-ink">
+      <nav
+        aria-label="Primary navigation"
+        className="sticky top-0 z-20 border-b border-border/70 bg-surface/90 backdrop-blur"
+      >
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3 sm:gap-5 sm:py-4">
+          <FlowLogo />
+          <div className="flex min-w-0 flex-1 items-center justify-center overflow-x-auto">
+            <TabButton active={showLanding} onClick={openHome}>
+              Home
+            </TabButton>
+            {(["translate", "jobs", "billing"] as Tab[]).map((item) => (
+              <TabButton
+                key={item}
+                active={!showLanding && tab === item}
+                onClick={() => openTab(item)}
+              >
+                {item === "jobs"
+                  ? "History"
+                  : item[0].toUpperCase() + item.slice(1)}
+              </TabButton>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              setTheme((current) => (current === "light" ? "dark" : "light"))
-            }
-            className="rounded-md border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-            title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-          >
-            {theme === "light" ? (
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+          <div className="flex shrink-0 items-center gap-3">
+            {session?.is_admin && (
+              <a
+                href="/admin/"
+                className="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-ink hover:bg-surface-subtle"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"
-                />
-              </svg>
-            ) : (
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <circle cx="12" cy="12" r="4" />
-                <path
-                  strokeLinecap="round"
-                  d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"
-                />
-              </svg>
+                Admin
+              </a>
             )}
-          </button>
-        </header>
-
-        <nav className="mb-6 flex gap-1 border-b border-slate-200">
-          <TabButton active={tab === "upload"} onClick={() => setTab("upload")}>
-            Upload
-          </TabButton>
-          <TabButton active={tab === "jobs"} onClick={() => setTab("jobs")}>
-            Jobs
-          </TabButton>
-          <TabButton active={tab === "db"} onClick={() => setTab("db")}>
-            DB
-          </TabButton>
-          <TabButton active={tab === "auth"} onClick={() => setTab("auth")}>
-            Auth
-          </TabButton>
-          <TabButton
-            active={tab === "billing"}
-            onClick={() => setTab("billing")}
-          >
-            Billing
-          </TabButton>
-        </nav>
-
-        {tab === "jobs" && <JobsScreen />}
-
-        {tab === "db" && <DbScreen />}
-
-        {tab === "auth" && <AuthScreen />}
-
-        {tab === "billing" && (
-          <BillingScreen
-            checkoutStatus={checkoutStatus}
-            onCheckoutStatusHandled={() => setCheckoutStatus(null)}
-          />
-        )}
-
-        {tab === "upload" && inUploadPhase && (
-          <UploadFlow
-            parsing={state.kind === "parsing"}
-            parsingName={state.kind === "parsing" ? state.fileName : undefined}
-            parseError={state.kind === "parseError" ? state.message : null}
-            onSubmit={submit}
-          />
-        )}
-
-        {tab === "upload" && state.kind === "configure" && (
-          <ConfigureScreen
-            fileName={state.fileName}
-            prepare={state.prepare}
-            onProcess={handleProcess}
-            onBack={restart}
-          />
-        )}
-
-        {tab === "upload" && state.kind === "translating" && (
-          <ProcessingScreen
-            fileName={state.fileName}
-            workerLabel={state.workerLabel}
-            sourceLang={state.sourceLang}
-            targets={state.targets}
-            jobId={state.jobId}
-            onDone={(results) => handleDone(state.jobId, results)}
-            onError={handleError}
-          />
-        )}
-
-        {tab === "upload" && state.kind === "translateError" && (
-          <div className="mt-6 space-y-3">
-            <ErrorBanner>
-              <span className="font-semibold">Translation failed: </span>
-              {state.message}
-            </ErrorBanner>
             <button
               type="button"
               onClick={() =>
-                setState({
-                  kind: "configure",
-                  fileName: state.fileName,
-                  prepare: state.prepare,
-                })
+                setTheme((value) => (value === "light" ? "dark" : "light"))
               }
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+              className="rounded-lg border border-border bg-surface-inset p-2"
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
             >
-              Back to configure
+              {theme === "light" ? "☾" : "☀"}
             </button>
+            {session ? (
+              <div ref={accountMenuRef} className="relative">
+                <button
+                  type="button"
+                  aria-expanded={accountMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={() => setAccountMenuOpen((open) => !open)}
+                  className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium"
+                >
+                  {session.email}
+                </button>
+                {accountMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-surface p-2 shadow-xl"
+                  >
+                    <p className="truncate px-2 py-1 text-xs text-ink-muted">
+                      {session.email}
+                    </p>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void handleLogout()}
+                      className="mt-1 w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-subtle"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <a
+                href={googleLoginUrl()}
+                className="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium"
+              >
+                Sign in
+              </a>
+            )}
           </div>
-        )}
-
-        {tab === "upload" && state.kind === "results" && (
-          <ResultsScreen
-            jobId={state.jobId}
-            results={state.results}
-            onRestart={restart}
-            onViewJobs={() => setTab("jobs")}
-          />
-        )}
-
-        {tab === "upload" && state.kind === "configure" && (
-          <details className="mt-8">
-            <summary className="cursor-pointer text-sm text-slate-600">
-              preview parsed cues
-            </summary>
-            <CuesView
-              result={{ cues: state.prepare.cues, count: state.prepare.count }}
+        </div>
+      </nav>
+      {showLanding ? (
+        <LandingScreen
+          signedIn={Boolean(session)}
+          onOpenApp={openStudio}
+          onOpenStudio={openStudio}
+        />
+      ) : (
+        <main className="mx-auto max-w-6xl px-5 py-10 sm:py-12">
+          {tab === "jobs" && <JobsScreen guest={!session} />}
+          {tab === "billing" && session && (
+            <BillingScreen
+              checkoutStatus={checkoutStatus}
+              checkoutSessionId={checkoutSessionId}
+              onCheckoutStatusHandled={() => {
+                setCheckoutStatus(null);
+                setCheckoutSessionId(null);
+              }}
+              onLogout={() => void handleLogout()}
             />
-          </details>
-        )}
-      </div>
+          )}
+          {tab === "translate" && (
+            <div className="space-y-10 pb-[40vh]">
+              <div
+                className={
+                  workflow.stage !== "idle"
+                    ? "pointer-events-none opacity-65"
+                    : ""
+                }
+              >
+                <UploadFlow
+                  onSubmit={submit}
+                  onLoadSample={() => submit([sampleFile()])}
+                  showSample={!session}
+                  readOnly={workflow.stage !== "idle"}
+                />
+              </div>
+              {workflow.stage !== "idle" && (
+                <section ref={configureRef} className="scroll-mt-24 py-4">
+                  <div className="w-full">
+                    <ConfigureScreen
+                      entries={workflow.entries}
+                      readOnly={workflow.stage !== "configure"}
+                      onSourceChange={(id, sourceLang, sourceLine) =>
+                        setWorkflow((previous) => {
+                          if (previous.stage !== "configure") return previous;
+                          const current = previous.entries.find(
+                            (entry) => entry.id === id,
+                          );
+                          const carried =
+                            sourceLine !== undefined
+                              ? current?.prepare?.bilingual?.line_langs[
+                                  1 - sourceLine
+                                ]
+                              : undefined;
+                          return {
+                            ...previous,
+                            entries: previous.entries.map((entry) =>
+                              entry.id === id
+                                ? { ...entry, sourceLang, sourceLine }
+                                : entry,
+                            ),
+                            targets: carried
+                              ? previous.targets.filter(
+                                  (target) => target !== carried,
+                                )
+                              : previous.targets,
+                          };
+                        })
+                      }
+                      onRemove={(id) =>
+                        updateEntries((entries) =>
+                          entries.filter((entry) => entry.id !== id),
+                        )
+                      }
+                      onRetry={retry}
+                      onProcess={handleProcess}
+                      onBack={restart}
+                      guest={!session}
+                      targets={workflow.targets}
+                      onTargetsChange={(targets) =>
+                        setWorkflow((previous) => ({ ...previous, targets }))
+                      }
+                      translateButtonRef={translateButtonRef}
+                    />
+                  </div>
+                </section>
+              )}
+              {(workflow.stage === "enqueuing" ||
+                workflow.stage === "enqueued") && (
+                <section ref={processingRef} className="scroll-mt-24 py-4">
+                  <div className="w-full space-y-5">
+                    {workflow.stage === "enqueuing" ? (
+                      <Card className="p-6">
+                        <SectionHeader
+                          index="Step 3 / 3"
+                          title="Queueing translations"
+                          detail={`Preparing ${workflow.entries.filter((entry) => entry.status === "ready").length} files…`}
+                        />
+                        <div className="flow-progress mt-5 h-2 rounded-full" />
+                      </Card>
+                    ) : (
+                      <ProcessingScreen
+                        jobs={workflow.jobs.map((job) => ({
+                          jobId: job.jobId,
+                          name: job.entry.name,
+                        }))}
+                        onJobTerminal={handleJobTerminal}
+                        complete={processingComplete}
+                        hasResults={doneJobs.length > 0}
+                        onViewResults={viewResults}
+                        onStartOver={restart}
+                      />
+                    )}
+                    {workflow.enqueueFailures.map((failure) => (
+                      <FailureCard
+                        key={failure.entry.id}
+                        name={failure.entry.name}
+                        detail={failure.message}
+                        label="Queue failed"
+                      />
+                    ))}
+                    {failedJobs.map((job) => {
+                      const result = workflow.terminalJobs[job.jobId];
+                      return (
+                        <FailureCard
+                          key={job.jobId}
+                          name={job.entry.name}
+                          label={result.error_kind ?? "Translation failed"}
+                          detail={
+                            result.error ??
+                            "The worker could not complete this job."
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+              {workflow.stage === "demo" && (
+                <section ref={processingRef} className="scroll-mt-24 py-4">
+                  <div className="w-full">
+                    <DemoProcessing
+                      sourceLang="en"
+                      targetLangs={workflow.targets.filter(
+                        (target) => target !== "en",
+                      )}
+                      onComplete={completeDemo}
+                    />
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+        </main>
+      )}
+      {decisionOpen && (
+        <DecisionModal
+          onSignIn={() => void signInWithPendingWork()}
+          onDemo={startDemo}
+          onClose={() => setDecisionOpen(false)}
+          error={decisionError}
+        />
+      )}
+      {welcomeOpen && session && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-5"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setWelcomeOpen(false)
+          }
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="welcome-title"
+            className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"
+          >
+            <h2 id="welcome-title" className="text-xl font-semibold">
+              Welcome back{session.email ? `, ${session.email}` : ""}
+            </h2>
+            <p className="mt-2 text-sm text-ink-muted">
+              {welcomeBalance === undefined
+                ? "Loading your remaining credit…"
+                : welcomeBalance
+                  ? `You have ${welcomeBalance.available_minutes} credit ${
+                      welcomeBalance.available_minutes === 1
+                        ? "minute"
+                        : "minutes"
+                    } left. Upload a file whenever you're ready — you can top up in Billing if you run low.`
+                  : "We couldn't load your remaining credit right now. You can check it anytime in Billing."}
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button onClick={() => setWelcomeOpen(false)}>Get started</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {loginPromptOpen && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-5"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setLoginPromptOpen(false)
+          }
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-title"
+            className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"
+          >
+            <h2 id="login-title" className="text-xl font-semibold">
+              Sign in to open Billing
+            </h2>
+            <p className="mt-2 text-sm text-ink-muted">
+              Billing and real translation history belong to your account.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href={googleLoginUrl()}
+                className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface"
+              >
+                Continue with Google
+              </a>
+              <Button variant="ghost" onClick={() => setLoginPromptOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FailureCard({
+  name,
+  label,
+  detail,
+}: {
+  name: string;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-900"
+    >
+      <p className="font-semibold">{name}</p>
+      <p className="mt-1 font-mono text-xs uppercase">{label}</p>
+      <p className="mt-2 text-sm">{detail}</p>
     </div>
   );
 }
@@ -352,118 +875,111 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`border-b-2 px-4 py-2 text-sm font-medium ${
-        active
-          ? "border-indigo-600 text-indigo-700"
-          : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"
-      }`}
+      aria-current={active ? "page" : undefined}
+      className={`whitespace-nowrap rounded-full px-3 py-2 text-sm transition sm:px-4 ${active ? "bg-[#14181F] font-semibold text-white" : "text-ink-muted hover:bg-surface-subtle hover:text-ink"}`}
     >
       {children}
     </button>
   );
 }
 
-const ACCEPT = ".srt";
-
-function validateFile(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".srt"))
-    return "file must have a .srt extension";
-  if (file.size === 0) return "file is empty";
-  if (file.size > 4 * 1024 * 1024) return "file exceeds 4 MiB limit";
-  return null;
-}
-
-/**
- * Upload drop zone + parsing/parse-error feedback. Owns the file input and
- * drag state; App owns the state machine and tab routing (#22).
- */
-function UploadFlow({
-  parsing,
-  parsingName,
-  parseError,
+export function UploadFlow({
   onSubmit,
+  onLoadSample,
+  showSample = true,
+  readOnly = false,
 }: {
-  parsing: boolean;
-  parsingName?: string;
-  parseError: string | null;
-  onSubmit: (file: File) => void;
+  onSubmit: (files: File[]) => void;
+  onLoadSample: () => void;
+  showSample?: boolean;
+  readOnly?: boolean;
 }) {
   const [dragging, setDragging] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  function submit(file: File) {
-    const err = validateFile(file);
-    if (err) {
-      setValidationError(err);
-      return;
-    }
-    setValidationError(null);
-    onSubmit(file);
+  function submit(selected: File[]) {
+    if (readOnly) return;
+    const capped = selected.slice(0, MAX_BATCH);
+    const accepted = capped.filter((file) => validateFile(file) === null);
+    const rejected =
+      capped.length -
+      accepted.length +
+      Math.max(0, selected.length - MAX_BATCH);
+    setMessage(
+      rejected > 0
+        ? `${accepted.length} accepted, ${rejected} rejected${selected.length > MAX_BATCH ? ` (maximum ${MAX_BATCH} files)` : ""}.`
+        : null,
+    );
+    if (accepted.length > 0) onSubmit(accepted);
   }
-
   return (
-    <>
+    <section className="rise">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader
+          index="Step 1 / 3"
+          title="Upload subtitles"
+          detail="Drop your subtitle files, choose target languages, and translate them all at once."
+        />
+        {showSample && (
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={onLoadSample}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-[#04252c] shadow-[0_10px_24px_-12px_rgba(0,167,196,.7)] transition-colors hover:bg-accent-deep hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Load sample SRT
+          </button>
+        )}
+      </div>
       <div
         role="button"
-        tabIndex={0}
-        aria-label="Drop an .srt file here, or activate to pick one"
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
+        tabIndex={readOnly ? -1 : 0}
+        aria-disabled={readOnly}
+        aria-label="Drop .srt files here, or activate to pick files"
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!readOnly) setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
+        onDrop={(event) => {
+          event.preventDefault();
           setDragging(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file) void submit(file);
+          submit(Array.from(event.dataTransfer.files));
         }}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
+        onClick={() => !readOnly && inputRef.current?.click()}
+        onKeyDown={(event) => {
+          if (!readOnly && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
             inputRef.current?.click();
           }
         }}
-        className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
-          dragging
-            ? "border-indigo-500 bg-indigo-50"
-            : "border-slate-300 bg-white"
-        }`}
+        className={`mt-6 rounded-2xl border-2 border-dashed p-10 text-center sm:p-12 ${readOnly ? "cursor-default border-border bg-surface-subtle opacity-60" : dragging ? "cursor-pointer border-accent bg-accent-soft" : "cursor-pointer border-accent/60 bg-accent-soft/50"}`}
       >
-        <p className="font-medium">Drop an .srt file here</p>
-        <p className="text-sm text-slate-500 mt-1">or click to pick one</p>
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-border bg-surface text-2xl font-bold text-accent shadow-[0_10px_22px_-12px_rgba(0,167,196,.5)]">
+          ↥
+        </div>
+        <p className="text-lg font-semibold">
+          {readOnly ? "Files locked for this run" : "Drop your .srt files here"}
+        </p>
+        <p className="mt-1 text-[13.5px] text-ink-muted">
+          {readOnly
+            ? "Start over to choose another batch."
+            : `or browse — batch upload supported · up to ${MAX_BATCH} files, 4 MiB each`}
+        </p>
         <input
           ref={inputRef}
           type="file"
           accept={ACCEPT}
+          multiple
+          disabled={readOnly}
           className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void submit(file);
-            e.target.value = "";
+          onChange={(event) => {
+            submit(Array.from(event.target.files ?? []));
+            event.target.value = "";
           }}
         />
       </div>
-
-      {parsing && parsingName && (
-        <p className="mt-6 text-sm text-slate-600">Parsing {parsingName}…</p>
-      )}
-
-      {validationError && (
-        <ErrorBanner>
-          <span className="font-semibold">Error: </span>
-          {validationError}
-        </ErrorBanner>
-      )}
-
-      {parseError && (
-        <ErrorBanner>
-          <span className="font-semibold">Error: </span>
-          {parseError}
-        </ErrorBanner>
-      )}
-    </>
+      {message && <ErrorBanner>{message}</ErrorBanner>}
+    </section>
   );
 }

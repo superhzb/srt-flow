@@ -1,117 +1,350 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   errMessage,
+  getBillingBalance,
   listJobs,
   pollJob,
-  type JobResult,
+  type BillingBalance,
   type JobStatus,
   type JobSummary,
 } from "./api.ts";
-import { ErrorBanner, RefreshButton, SrtPreview } from "./components.tsx";
+import { ErrorBanner, QuotaBar } from "./components.tsx";
 import { usePoll } from "./hooks.ts";
+import { langMeta } from "./languages.ts";
+import { StackedOutput } from "./StackedOutput.tsx";
+import { listDemoEntries, type DemoHistoryEntry } from "./clientStorage.ts";
+import { formatLedgerDate } from "./lib.ts";
 
-// History table from GET /api/jobs — the first thing persistence buys the
-// user (PLAN.md slice 3). Clicking a row opens a detail panel that polls
-// for live status while a job is in flight.
-export function JobsScreen() {
+export function JobsScreen({ guest = false }: { guest?: boolean }) {
+  return guest ? <GuestHistory /> : <RealJobsScreen />;
+}
+
+function RealJobsScreen() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [balance, setBalance] = useState<BillingBalance | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  function refresh() {
-    listJobs()
-      .then(setJobs)
-      .catch((e: unknown) => setError(errMessage(e, "failed to load jobs")));
-  }
+  const [query, setQuery] = useState("");
+  const [languageOrderHost, setLanguageOrderHost] =
+    useState<HTMLDivElement | null>(null);
+  const poll = usePoll(
+    listJobs,
+    (items) =>
+      items.every((job) => job.status === "done" || job.status === "failed"),
+    { immediateFirst: true },
+  );
 
   useEffect(() => {
-    refresh();
-  }, []);
+    if (poll.result) setJobs(poll.result);
+    if (poll.error) setError(poll.error);
+  }, [poll.result, poll.error]);
+
+  useEffect(() => {
+    getBillingBalance()
+      .then(setBalance)
+      .catch(() => setBalance(null));
+  }, [poll.result]);
+
+  useEffect(() => {
+    if (!selectedId && jobs?.length) setSelectedId(jobs[0].id);
+    if (selectedId && jobs && !jobs.some((job) => job.id === selectedId))
+      setSelectedId(jobs[0]?.id ?? null);
+  }, [jobs, selectedId]);
+
+  const filteredJobs = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return jobs ?? [];
+    return (jobs ?? []).filter((job) =>
+      [
+        job.filename,
+        job.id,
+        job.src_lang,
+        ...(job.carried_langs ?? []),
+        ...job.tgt_langs,
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLocaleLowerCase().includes(needle)),
+    );
+  }, [jobs, query]);
 
   return (
-    <section className="mt-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Jobs</h2>
-          <p className="text-sm text-slate-600">
-            History of translation jobs (dev user).
-          </p>
-        </div>
-        <RefreshButton onClick={refresh} />
-      </div>
-
+    <section className="rise">
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {jobs === null && !error && (
-        <p className="text-sm text-slate-600">Loading…</p>
-      )}
+      <div className="grid gap-5 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-5 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+            <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
+              History
+            </h1>
+            <label className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-4 py-3">
+              <span aria-hidden="true" className="text-faint">
+                ⌕
+              </span>
+              <span className="sr-only">Search history</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="search history"
+                className="min-w-0 flex-1 border-0 bg-transparent font-mono text-[11px] text-ink outline-none placeholder:text-faint"
+              />
+            </label>
 
-      {jobs !== null && jobs.length === 0 && (
-        <p className="text-sm text-slate-600">No jobs yet.</p>
-      )}
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle lg:max-h-none lg:min-h-0 lg:flex-1">
+              {jobs === null && !error && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  Loading…
+                </p>
+              )}
+              {jobs?.length === 0 && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  No jobs yet.
+                </p>
+              )}
+              {jobs !== null &&
+                jobs.length > 0 &&
+                filteredJobs.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                    No matching jobs.
+                  </p>
+                )}
+              {filteredJobs.map((job) => (
+                <JobListItem
+                  key={job.id}
+                  job={job}
+                  active={selectedId === job.id}
+                  onSelect={() => setSelectedId(job.id)}
+                />
+              ))}
+            </div>
 
-      {jobs !== null && jobs.length > 0 && (
-        <div className="overflow-auto rounded-lg border border-slate-200">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-slate-600">
-              <tr>
-                <th className="px-3 py-2 text-left">job</th>
-                <th className="px-3 py-2 text-left">status</th>
-                <th className="px-3 py-2 text-left">worker</th>
-                <th className="px-3 py-2 text-left">langs</th>
-                <th className="px-3 py-2 text-left w-32">progress</th>
-                <th className="px-3 py-2 text-left">created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((j) => {
-                const active = selectedId === j.id;
-                return (
-                  <tr
-                    key={j.id}
-                    tabIndex={0}
-                    onClick={() => setSelectedId(j.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedId(j.id);
-                      }
-                    }}
-                    className={`border-t border-slate-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 hover:bg-slate-50 ${
-                      active ? "bg-indigo-50" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {j.id.slice(0, 8)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={j.status} />
-                    </td>
-                    <td className="px-3 py-2">{j.worker}</td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      <span className="text-slate-700">{j.src_lang}</span>
-                      <span className="text-slate-400"> → </span>
-                      {j.tgt_langs.join(", ")}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {(j.progress * 100).toFixed(0)}%
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-500">
-                      {new Date(j.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            {balance && <QuotaFooter balance={balance} />}
+          </aside>
+          <div
+            ref={setLanguageOrderHost}
+            className="flow-scroll lg:mt-5 lg:max-h-[45%] lg:min-h-0 lg:shrink-0 lg:overflow-y-auto"
+          />
+        </div>
+
+        <div className="min-w-0 lg:h-full lg:min-h-0">
+          {selectedId ? (
+            <JobReview
+              key={selectedId}
+              jobId={selectedId}
+              historySidebar={languageOrderHost}
+            />
+          ) : (
+            <div className="flex min-h-72 items-center justify-center rounded-2xl border border-border bg-surface p-8 text-center text-sm text-ink-muted">
+              Select a job to review and download it.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GuestHistory() {
+  const [entries, setEntries] = useState<DemoHistoryEntry[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [languageOrderHost, setLanguageOrderHost] =
+    useState<HTMLDivElement | null>(null);
+  const refresh = () => {
+    setError(null);
+    listDemoEntries()
+      .then((items) => {
+        setEntries(items);
+        setSelectedId((current) =>
+          current && items.some((item) => item.id === current)
+            ? current
+            : (items[0]?.id ?? null),
+        );
+      })
+      .catch((reason: unknown) =>
+        setError(errMessage(reason, "failed to load demo history")),
+      );
+  };
+  useEffect(refresh, []);
+  const selected = entries?.find((entry) => entry.id === selectedId);
+  return (
+    <section className="rise">
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="grid gap-5 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-5 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
+          <aside className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+            <h1 className="border-b border-border-subtle px-5 py-4 text-base font-semibold tracking-tight">
+              History
+            </h1>
+            <div className="flow-scroll max-h-[520px] min-h-40 overflow-y-auto bg-surface-subtle lg:max-h-none lg:min-h-0 lg:flex-1">
+              {entries === null && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  Loading…
+                </p>
+              )}
+              {entries?.length === 0 && (
+                <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  No demo translations yet.
+                </p>
+              )}
+              {entries?.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setSelectedId(entry.id)}
+                  className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left ${selectedId === entry.id ? "border-l-accent bg-accent-soft/70" : "border-l-transparent bg-transparent hover:bg-surface"}`}
+                >
+                  <span className="block truncate text-[13.5px] font-semibold">
+                    {entry.filename}
+                  </span>
+                  <span className="mt-0.5 block font-mono text-[10.5px] text-faint">
+                    Demo translation ·{" "}
+                    {formatLedgerDate(new Date(entry.createdAt).toISOString())}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div
+            ref={setLanguageOrderHost}
+            className="flow-scroll lg:mt-5 lg:max-h-[45%] lg:min-h-0 lg:shrink-0 lg:overflow-y-auto"
+          />
+        </div>
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:h-full lg:min-h-0">
+          {selected ? (
+            <StackedOutput
+              demoCues={selected.cuesByLanguage}
+              sourceLang={selected.sourceLang}
+              targetLangs={selected.targetLangs}
+              historyHeader={{
+                filename: selected.filename,
+                meta: `Demo translation · ${formatLedgerDate(new Date(selected.createdAt).toISOString())}`,
+              }}
+              historySidebar={languageOrderHost}
+            />
+          ) : (
+            <div className="flex min-h-72 items-center justify-center p-8 text-center text-sm text-ink-muted">
+              Run the sample demo to create a local History entry.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function JobListItem({
+  job,
+  active,
+  onSelect,
+}: {
+  job: JobSummary;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`block w-full border-b border-border-subtle border-l-[3px] px-4 py-3.5 text-left outline-none ${active ? "border-l-accent bg-accent-soft/70" : "border-l-transparent bg-transparent hover:bg-surface"}`}
+    >
+      <span className="flex items-center gap-2.5">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13.5px] font-semibold">
+            {job.filename ?? job.id.slice(0, 8)}
+          </span>
+          <span className="mt-0.5 block truncate font-mono text-[10.5px] text-faint">
+            {formatLedgerDate(job.created_at)} ·{" "}
+            <span aria-hidden="true">{langMeta(job.src_lang).flag}</span>{" "}
+            {job.src_lang.toUpperCase()} →{" "}
+            {job.tgt_langs.map((lang, index) => (
+              <span key={lang}>
+                {index > 0 && ", "}
+                <span aria-hidden="true">{langMeta(lang).flag}</span>{" "}
+                {lang.toUpperCase()}
+              </span>
+            ))}
+          </span>
+        </span>
+        <StatusBadge status={job.status} />
+      </span>
+    </button>
+  );
+}
+
+function JobReview({
+  jobId,
+  historySidebar,
+}: {
+  jobId: string;
+  historySidebar: HTMLElement | null;
+}) {
+  const { result: job, error } = usePoll(
+    () => pollJob(jobId),
+    (body) => body.status === "done" || body.status === "failed",
+    { immediateFirst: true },
+  );
+
+  if (error) return <ErrorBanner>{error}</ErrorBanner>;
+  if (!job)
+    return (
+      <div className="rounded-2xl border border-border bg-surface p-8 text-sm text-ink-muted">
+        Loading job…
+      </div>
+    );
+
+  const displayTargets = job.tgt_langs.filter(
+    (target) => target !== job.src_lang,
+  );
+  const targetChips = displayTargets
+    .map((lang) => `${langMeta(lang).flag} ${lang.toUpperCase()}`)
+    .join(" ");
+  const billedMin =
+    (job.source_minutes ?? 0) * Math.max(1, displayTargets.length);
+  const meta = `${formatLedgerDate(job.created_at)} · ${langMeta(job.src_lang).flag} ${job.src_lang.toUpperCase()} → ${targetChips} · ${billedMin}min`;
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_14px_34px_-26px_rgba(20,24,31,.2)] lg:h-full lg:min-h-0">
+      {job.status === "done" ? (
+        <StackedOutput
+          jobId={jobId}
+          sourceLang={job.src_lang}
+          carriedLangs={job.carried_langs ?? []}
+          targetLangs={displayTargets}
+          historyHeader={{ filename: job.filename ?? job.id.slice(0, 8), meta }}
+          historySidebar={historySidebar}
+        />
+      ) : (
+        <div className="p-6">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold">
+              {job.filename ?? job.id.slice(0, 8)}
+            </h2>
+            <StatusBadge status={job.status} />
+          </div>
+          <p className="mt-2 text-sm text-ink-muted">
+            {job.error ?? `${(job.progress * 100).toFixed(0)}% complete`}
+          </p>
         </div>
       )}
+    </div>
+  );
+}
 
-      {selectedId && (
-        <JobDetail jobId={selectedId} onClose={() => setSelectedId(null)} />
-      )}
-    </section>
+function QuotaFooter({ balance }: { balance: BillingBalance }) {
+  // Show the full credit pool (free allowance + purchased), matching Billing,
+  // not only the monthly free bucket.
+  const total = balance.free_limit + balance.purchased_minutes;
+  const used = Math.max(0, total - balance.available_minutes);
+  return (
+    <div className="border-t border-border-subtle bg-surface-subtle px-4 py-3.5">
+      <QuotaBar
+        used={used}
+        limit={total}
+        label="Credit"
+        ariaLabel="Total credit remaining"
+      />
+    </div>
   );
 }
 
@@ -120,87 +353,15 @@ function StatusBadge({ status }: { status: JobStatus }) {
     status === "done"
       ? "bg-emerald-100 text-emerald-800"
       : status === "failed"
-        ? "bg-red-100 text-red-800"
+        ? "bg-amber-100 text-amber-800"
         : status === "processing"
-          ? "bg-indigo-100 text-indigo-800"
-          : "bg-slate-100 text-slate-700";
+          ? "bg-accent-soft text-accent-deep"
+          : "bg-surface-inset text-ink-muted";
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${tone}`}>
+    <span
+      className={`shrink-0 rounded-md px-2 py-1 font-mono text-[10px] ${tone}`}
+    >
       {status}
     </span>
-  );
-}
-
-function JobDetail({ jobId, onClose }: { jobId: string; onClose: () => void }) {
-  const { result: body, error } = usePoll(
-    () => pollJob(jobId),
-    (b) => b.status === "done" || b.status === "failed",
-    { immediateFirst: true },
-  );
-
-  return (
-    <div className="rounded-lg border border-slate-300 p-4 space-y-3 bg-white">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">
-          Job <span className="font-mono text-sm">{jobId.slice(0, 8)}</span>
-        </h3>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm text-slate-500 hover:text-slate-800"
-        >
-          close
-        </button>
-      </div>
-      {error && <p className="text-sm text-red-700">{error}</p>}
-      {body && (
-        <>
-          <div className="text-sm text-slate-700 space-y-1">
-            <div>
-              status: <StatusBadge status={body.status} />
-            </div>
-            <div>progress: {(body.progress * 100).toFixed(0)}%</div>
-            <div>
-              worker: <span className="font-mono">{body.worker}</span>
-            </div>
-            <div>
-              langs:{" "}
-              <span className="font-mono">
-                {body.src_lang} → {body.tgt_langs.join(", ")}
-              </span>
-            </div>
-            {body.error && (
-              <div className="text-red-700">error: {body.error}</div>
-            )}
-          </div>
-          {body.results && body.results.length > 0 && (
-            <ResultsList results={body.results} />
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function ResultsList({ results }: { results: JobResult[] }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-sm font-medium text-slate-700">Outputs:</p>
-      <ul className="text-sm space-y-1">
-        {results.map((r) => (
-          <li key={r.lang} className="flex items-center gap-2">
-            <span className="font-mono text-xs w-12">{r.lang}</span>
-            <a
-              href={r.download_url}
-              download
-              className="text-indigo-600 hover:underline text-sm"
-            >
-              download
-            </a>
-            <SrtPreview url={r.download_url} />
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }

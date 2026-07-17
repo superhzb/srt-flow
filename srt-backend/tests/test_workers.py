@@ -1,57 +1,58 @@
-"""Tests for worker env parsing and resolution (no network)."""
+"""Tests for worker registry resolution via the public pkg_job_orch API (no network)."""
 
 from __future__ import annotations
 
 import pytest
 from pkg_job_orch.api import (
     WorkerResolutionError,
+    worker_backend_config,
     worker_base_url,
     workers_env,
 )
 
 
-def test_workers_env_parses_id_url_pairs() -> None:
-    infos = workers_env("cloud=http://localhost:5733, mlx=http://localhost:5732")
+def test_workers_env_lists_enabled_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "cloud,mlx")
+
+    infos = workers_env()
+
     assert [i.id for i in infos] == ["cloud", "mlx"]
-    assert infos[0].base_url == "http://localhost:5733"
-    assert infos[1].base_url == "http://localhost:5732"
+    assert infos[0].base_url == "https://api.deepseek.com"
 
 
-def test_workers_env_strips_trailing_slash() -> None:
-    infos = workers_env("cloud=http://localhost:5733/")
-    assert infos[0].base_url == "http://localhost:5733"
+def test_workers_env_label_known_vs_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "cloud,mlx")
 
+    infos = workers_env()
 
-def test_workers_env_label_known_vs_unknown() -> None:
-    infos = workers_env("cloud=http://x,mlx=http://y,weird=http://z")
     labels = {i.id: i.label for i in infos}
     assert labels["cloud"] == "Cloud (DeepSeek)"
     assert labels["mlx"] == "Local MLX"
-    assert labels["weird"] == "Weird"  # title-case fallback
 
 
-def test_workers_env_skips_empty_tokens() -> None:
-    infos = workers_env("cloud=http://x,, ,mlx=http://y")
-    assert [i.id for i in infos] == ["cloud", "mlx"]
+def test_workers_env_rejects_unknown_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "ghost")
 
-
-def test_workers_env_rejects_missing_equals() -> None:
     with pytest.raises(WorkerResolutionError):
-        workers_env("cloud-not-a-url")
+        workers_env()
 
 
-def test_workers_env_rejects_empty_id_or_url() -> None:
+def test_worker_base_url_resolves_known_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "mlx")
+    monkeypatch.setenv("MLX_PLATFORM_BASE_URL", "http://127.0.0.1:5900/v1")
+
+    assert worker_base_url("mlx") == "http://127.0.0.1:5900/v1"
+
+
+def test_worker_base_url_raises_on_unknown_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "mlx")
+
     with pytest.raises(WorkerResolutionError):
-        workers_env("=http://x")
+        worker_base_url("ghost")
+
+
+def test_worker_backend_config_raises_on_unknown_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BACKENDS", "mlx")
+
     with pytest.raises(WorkerResolutionError):
-        workers_env("cloud=")
-
-
-def test_worker_base_url_resolves_known_id() -> None:
-    url = worker_base_url("mlx", raw="mlx=http://localhost:5732")
-    assert url == "http://localhost:5732"
-
-
-def test_worker_base_url_raises_on_unknown_id() -> None:
-    with pytest.raises(WorkerResolutionError):
-        worker_base_url("ghost", raw="mlx=http://localhost:5732")
+        worker_backend_config("ghost")

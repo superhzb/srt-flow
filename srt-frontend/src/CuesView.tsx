@@ -29,13 +29,13 @@ export function CuesView({ result }: Props) {
       </div>
 
       {showJson ? (
-        <pre className="bg-slate-900 text-slate-100 rounded-lg p-4 overflow-auto text-xs">
+        <pre className="bg-[#090a0d] text-white rounded-lg p-4 overflow-auto text-xs">
           {JSON.stringify(result, null, 2)}
         </pre>
       ) : (
-        <div className="overflow-auto rounded-lg border border-slate-200">
+        <div className="overflow-auto rounded-lg border border-border">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-slate-600">
+            <thead className="bg-surface-inset text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left w-16">#</th>
                 <th className="px-3 py-2 text-left w-80">start → end</th>
@@ -46,15 +46,15 @@ export function CuesView({ result }: Props) {
               {result.cues.map((cue) => (
                 <tr
                   key={cue.index}
-                  className="border-t border-slate-100 align-top"
+                  className="border-t border-border-subtle align-top"
                 >
-                  <td className="px-3 py-2 text-slate-500 tabular-nums">
+                  <td className="px-3 py-2 text-faint tabular-nums">
                     {cue.index}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">
-                    <span className="text-slate-700">{cue.start}</span>
-                    <span className="text-slate-400"> → </span>
-                    <span className="text-slate-700">{cue.end}</span>
+                    <span className="text-ink-muted">{cue.start}</span>
+                    <span className="text-faint"> → </span>
+                    <span className="text-ink-muted">{cue.end}</span>
                   </td>
                   <td className="px-3 py-2 whitespace-pre-wrap">{cue.text}</td>
                 </tr>

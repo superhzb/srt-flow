@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:03,500
+Bom dia. Obrigado por vir hoje.
+
+2
+00:00:03,600 --> 00:00:06,200
+Eu queria explicar como o processo funciona.
+
+3
+00:00:06,300 --> 00:00:09,000
+É preciso muita força para chegar até o fim.
+
+4
+00:00:09,100 --> 00:00:11,800
+Mas você não vai fazer isso sozinho.
+
+5
+00:00:11,900 --> 00:00:14,400
+Estaremos com você em cada passo do caminho.

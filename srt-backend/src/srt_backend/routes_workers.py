@@ -1,8 +1,8 @@
 """Worker + language routes.
 
-Thin HTTP layer over ``pkg_job_orch`` worker registry. Job-orch owns
-the worker HTTP surface (registry, health probe, language proxy,
-streaming client); these routes just expose it under ``/api``.
+Thin HTTP layer over ``pkg_job_orch``'s in-process LLM backend registry.
+Job-orch owns the worker surface (registry, health check, language
+catalog); these routes just expose it under ``/api``.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from pkg_job_orch.api import (
     WorkerResolutionError,
     fetch_languages,
     probe_workers,
-    worker_base_url,
     workers_env,
 )
 
@@ -31,13 +30,10 @@ async def list_languages(
     worker: str = Query(..., description="Worker id to query"),
 ) -> dict[str, object]:
     try:
-        base_url = worker_base_url(worker)
+        return await fetch_languages(worker)
     except WorkerResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    try:
-        return await fetch_languages(base_url)
-    except Exception as exc:  # noqa: BLE001 — surface worker failure as 502
+    except Exception as exc:  # noqa: BLE001 — surface backend failure as 502
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"worker languages call failed: {exc}",

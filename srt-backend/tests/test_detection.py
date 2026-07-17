@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pkg_srt_services.api import Cue
-from srt_backend.detection import SUPPORTED_LANGS, detect
+from srt_backend.detection import SUPPORTED_LANGS, detect, detect_bilingual
 
 
 def _cue(index: int, text: str) -> Cue:
@@ -51,3 +51,38 @@ def test_detected_lang_is_always_supported() -> None:
     for cues in samples:
         d = detect(cues)
         assert d.lang is None or d.lang in SUPPORTED_LANGS
+
+
+def test_detect_bilingual_requires_majority_of_all_cues() -> None:
+    cues = [
+        _cue(1, "This is a complete English sentence.\n这是一个完整的中文句子。"),
+        _cue(2, "Another complete English sentence.\n这是另一个完整的中文句子。"),
+        _cue(3, "Most of this subtitle file is only English."),
+        _cue(4, "The same is true for this subtitle cue."),
+        _cue(5, "There are too few bilingual cues to qualify."),
+    ]
+    assert not detect_bilingual(cues).is_bilingual
+
+
+def test_detect_bilingual_rejects_wrapped_monolingual_and_single_line_cues() -> None:
+    wrapped = [
+        _cue(i, "This English caption wraps naturally\nonto a second English line")
+        for i in range(1, 4)
+    ]
+    single = [_cue(i, "This caption has only one line") for i in range(1, 4)]
+    assert not detect_bilingual(wrapped).is_bilingual
+    assert not detect_bilingual(single).is_bilingual
+
+
+def test_detect_bilingual_short_lines_detected_via_aggregate() -> None:
+    # Each cue's two lines are short enough that per-line detection is
+    # unreliable on their own; concatenating line-0 and line-1 gives the
+    # detector enough text to recognise the French/English split.
+    cues = [
+        _cue(i, "Oui, bien sûr, merci beaucoup.\nYes, of course, thank you so much.")
+        for i in range(1, 6)
+    ]
+    result = detect_bilingual(cues)
+    assert result.is_bilingual
+    assert result.line_langs == ["fr", "en"]
+    assert result.confidence > 0.5

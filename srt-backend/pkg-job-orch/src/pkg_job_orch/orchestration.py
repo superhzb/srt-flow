@@ -1,11 +1,11 @@
 """Job orchestration: enqueue, worker_loop, recover, seed dev user.
 
-Pure-ish wiring layer over models/db/storage/worker_client. The app
-lifespan constructs the queue + worker_loop task and shares them via
-``app.state``; the router calls :func:`enqueue` with that queue.
+Pure-ish wiring layer over models/db/storage/the in-process LLM backend
+registry. The app lifespan constructs the queue + worker_loop task and shares
+them via ``app.state``; the router calls :func:`enqueue` with that queue.
 
 Single-writer invariant: exactly one ``worker_loop`` per process pulls
-``concurrency=1``. SQLite's single writer + the mlx worker's
+``concurrency=1``. SQLite's single writer + the translation backend's
 single-threaded model both demand it.
 """
 
@@ -17,22 +17,19 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from pkg_file_upload.api import Storage
-from pkg_srt_services.api import Cue, parse, serialize
+from pkg_llm_backend.api import Backend
+from pkg_srt_services.api import BilingualDetector, Cue, parse, serialize, split_bilingual
+from pkg_translator.api import BatchProgress, translate_segments
 from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
+from .credits import debit_job_once
 from .db import session_scope
-from .models import Job, User, tgt_langs_from_csv, tgt_langs_to_csv
-from .worker_client import (
-    StreamOutcome,
-    WorkerStreamError,
-    build_segments,
-    stream_translate,
-)
-from .workers import WorkerResolutionError, worker_base_url
+from .models import Job, User, dropped_to_json, tgt_langs_from_csv, tgt_langs_to_csv
+from .workers import WorkerResolutionError, worker_backend_config
 
 __all__ = [
     "DEFAULT_DEV_USER_EMAIL",
@@ -42,7 +39,11 @@ __all__ = [
     "JobContext",
     "Notifier",
     "NullNotifier",
+    "StreamOutcome",
     "WorkerClientFn",
+    "WorkerStreamError",
+    "build_segments",
+    "clean_target_langs",
     "default_worker_client",
     "enqueue",
     "recover_jobs",
@@ -56,13 +57,71 @@ logger = logging.getLogger(__name__)
 # assertions stable; slice 4 swaps this for real OAuth upserts.
 DEV_USER_ID = "dev-user"
 
+
+def clean_target_langs(targets: list[str], source_lang: str) -> list[str]:
+    """Dedup targets, drop the source if it slipped in, preserve order.
+
+    The authoritative billed language count (option A pricing) is derived
+    from this list, so the route's 402 pre-check and enqueue agree.
+    """
+    seen: set[str] = set()
+    clean: list[str] = []
+    for t in targets:
+        if t == source_lang or t in seen or not t:
+            continue
+        seen.add(t)
+        clean.append(t)
+    return clean
+
+
 # Polling cadence on an empty queue — keeps the loop responsive to the
 # shutdown signal without busy-spinning.
 _QUEUE_POLL_TIMEOUT: float = 0.5
 
 
+class ProgressUpdate(float):
+    """Aggregate-compatible progress value carrying per-target counters."""
+
+    by_target: dict[str, dict[str, int]]
+
+    def __new__(cls, fraction: float, by_target: dict[str, dict[str, int]]) -> ProgressUpdate:
+        value = float.__new__(cls, fraction)
+        value.by_target = by_target
+        return value
+
+
+@dataclass(frozen=True)
+class StreamOutcome:
+    """Successful terminal state of a translation run."""
+
+    source_lang: str
+    targets: list[str]
+    segments: list[dict[str, Any]]
+
+
+class WorkerStreamError(RuntimeError):
+    """Raised on any backend-side failure (bad worker id, generation failure, …)."""
+
+
+# Adapter helper — shared by routes (POST validation) and orchestration.
+def build_segments(cues: list[Cue], source_lang: str) -> list[dict[str, Any]]:
+    """Map cues → translation ``segments`` format: ``[{id, "<src>": text}]``."""
+    return [{"id": cue.index, source_lang: cue.text} for cue in cues]
+
+
+_BACKEND = Backend()
+
+
 class EnqueueError(ValueError):
     """Raised when a job cannot be enqueued (bad worker, bad cues, …)."""
+
+
+class LandingError(RuntimeError):
+    """A result-persistence failure after dropped-cue counts were computed."""
+
+    def __init__(self, message: str, *, dropped: dict[str, int]) -> None:
+        super().__init__(message)
+        self.dropped = dropped
 
 
 @dataclass(frozen=True)
@@ -97,13 +156,68 @@ WorkerClientFn = Callable[
 
 
 async def default_worker_client(
-    base_url: str,
+    worker_id: str,
     source_lang: str,
     targets: list[str],
     segments: list[dict[str, Any]],
     on_progress: Callable[[float], None] | None,
 ) -> StreamOutcome:
-    return await stream_translate(base_url, source_lang, targets, segments, on_progress)
+    """Translate in-process against the ``worker_id`` backend row.
+
+    Replaces the old HTTP NDJSON hop: resolves ``worker_id`` to an
+    ``LLMBackendConfig``, runs ``pkg_translator.translate_segments`` on a
+    worker thread (mirroring ``pkg_translator.app``'s own streaming
+    endpoint), and folds ``BatchProgress`` into the same ``[0, 1]`` fraction
+    the old NDJSON client computed (denominator = Σ ``batch_total`` across
+    targets, learned as targets are seen).
+    """
+    try:
+        config = worker_backend_config(worker_id)
+    except WorkerResolutionError as exc:
+        raise WorkerStreamError(str(exc)) from exc
+
+    progress_by_target: dict[str, dict[str, int]] = {}
+    seen_targets: set[str] = set()
+    batches_done = 0
+    batches_total_sum = 0
+
+    def fold_progress(progress: BatchProgress) -> None:
+        nonlocal batches_done, batches_total_sum
+        done = progress.batch_index + 1
+        progress_by_target[progress.target] = {"done": done, "total": progress.batch_total}
+        if progress.target not in seen_targets:
+            seen_targets.add(progress.target)
+            batches_total_sum += progress.batch_total
+        batches_done += 1
+        if on_progress is not None:
+            fraction = batches_done / batches_total_sum if batches_total_sum else 0.0
+            on_progress(ProgressUpdate(fraction, dict(progress_by_target)))
+
+    try:
+        result_targets, result_segments = await asyncio.to_thread(
+            translate_segments,
+            source_lang,
+            targets,
+            segments,
+            config,
+            None,
+            fold_progress,
+            _BACKEND,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface any backend failure uniformly
+        raise WorkerStreamError(str(exc)) from exc
+
+    if on_progress is not None:
+        completed = {
+            target: {
+                "done": progress_by_target.get(target, {}).get("total", 1),
+                "total": progress_by_target.get(target, {}).get("total", 1),
+            }
+            for target in result_targets
+        }
+        on_progress(ProgressUpdate(1.0, completed))
+
+    return StreamOutcome(source_lang=source_lang, targets=result_targets, segments=result_segments)
 
 
 @dataclass
@@ -118,10 +232,12 @@ class JobContext:
     storage: Storage
     dev_user_id: str
     notifier: Notifier
+    free_tier_monthly_limit: int = 30
     # Patchable seam: tests swap this for a fake. Real code uses
     # ``default_worker_client``. Default assigned in __post_init__ to
     # sidestep dataclass field-default-vs-factory awkwardness.
     worker_client: WorkerClientFn | None = None
+    bilingual_detector: BilingualDetector | None = None
 
     def __post_init__(self) -> None:
         if self.worker_client is None:
@@ -159,6 +275,11 @@ def enqueue(
     source_lang: str,
     targets: list[str],
     worker_id: str,
+    filename: str | None = None,
+    user_id: str | None = None,
+    source_minutes: int = 0,
+    carried_lang: str | None = None,
+    source_line: int | None = None,
 ) -> EnqueueResult:
     """Persist a new pending job and put its id on the queue.
 
@@ -180,40 +301,50 @@ def enqueue(
         raise EnqueueError("at least one target language is required")
 
     # Dedup targets, drop the source if it slipped in, preserve order.
-    seen: set[str] = set()
-    clean_targets: list[str] = []
-    for t in targets:
-        if t == source_lang or t in seen or not t:
-            continue
-        seen.add(t)
-        clean_targets.append(t)
+    clean_targets = clean_target_langs(targets, source_lang)
     if not clean_targets:
         raise EnqueueError("at least one target language is required (after dedup)")
 
     # Resolve worker eagerly — 404 belongs to the POST, not the worker_loop.
     try:
-        base_url = worker_base_url(worker_id)
+        worker_backend_config(worker_id)
     except WorkerResolutionError as exc:
         raise EnqueueError(str(exc)) from exc
 
     job_id = uuid.uuid4().hex
-    input_srt = serialize(cues)
-    ctx.storage.save(ctx.dev_user_id, job_id, "input.srt", input_srt.encode("utf-8"))
+    source_cues = cues
+    carried_cues: list[Cue] = []
+    if carried_lang is not None:
+        if source_line is None:
+            raise EnqueueError("source_line is required for a carried language")
+        source_cues, carried_cues = split_bilingual(cues, source_line)
+    input_srt = serialize(source_cues)
+    owner_id = user_id or ctx.dev_user_id
+    ctx.storage.save(owner_id, job_id, "input.srt", input_srt.encode("utf-8"))
+    if carried_lang is not None:
+        if not carried_cues:
+            raise EnqueueError("bilingual file has no carried cues")
+        ctx.storage.save(
+            owner_id,
+            job_id,
+            f"output.{carried_lang}.srt",
+            serialize(carried_cues).encode("utf-8"),
+        )
 
     job = Job(
         id=job_id,
-        user_id=ctx.dev_user_id,
+        filename=filename,
+        user_id=owner_id,
+        source_minutes=source_minutes,
         status="pending",
         worker=worker_id,
         src_lang=source_lang,
         tgt_langs=tgt_langs_to_csv(clean_targets),
+        carried_langs=tgt_langs_to_csv([carried_lang] if carried_lang else []),
         progress=0.0,
     )
     session.add(job)
     session.flush()
-    # base_url is unused here but validated above — keeps the failure on the
-    # request boundary. The worker_loop resolves it again from job.worker.
-    del base_url
     return EnqueueResult(job_id=job_id, job=job)
 
 
@@ -230,6 +361,7 @@ def recover_jobs(session: Session) -> int:
         job.status = "pending"
         job.progress = 0.0
         job.error = None
+        job.error_kind = None
         session.add(job)
         reset += 1
     return reset
@@ -276,62 +408,81 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
             logger.info("worker_loop: job %s in status %s — skipping", job_id, job.status)
             return
         job.status = "processing"
+        if job.started_at is None:
+            job.started_at = datetime.now(UTC)
+        job.attempts += 1
         session.add(job)
         session.commit()
         session.refresh(job)
         worker = job.worker
         src_lang = job.src_lang
         targets = tgt_langs_from_csv(job.tgt_langs)
+        user_id = job.user_id
 
     try:
-        outcome = await _run_translation(ctx, job_id, worker, src_lang, targets)
+        outcome = await _run_translation(ctx, job_id, user_id, worker, src_lang, targets)
     except WorkerStreamError as exc:
-        _mark_failed(job_id, str(exc))
+        logger.exception("worker_loop: worker stream failed for job %s", job_id)
+        _mark_failed(job_id, str(exc), "worker_stream")
         ctx.notifier.notify_failed(job_id, str(exc))
         return
     except Exception as exc:  # noqa: BLE001 — never let the worker_loop die
         logger.exception("worker_loop: translation crashed for job %s", job_id)
-        _mark_failed(job_id, f"internal error: {exc}")
+        _mark_failed(job_id, f"internal error: {exc}", "internal")
         ctx.notifier.notify_failed(job_id, f"internal error: {exc}")
         return
 
     # All-or-nothing: write all outputs, then flip status=done in one tx.
     try:
-        _land_results(ctx, job_id, outcome)
-    except Exception as exc:  # noqa: BLE001
+        _land_results(ctx, job_id, user_id, outcome)
+    except LandingError as exc:
         logger.exception("worker_loop: landing results failed for job %s", job_id)
-        _mark_failed(job_id, f"failed to land results: {exc}")
+        _mark_failed(job_id, f"failed to land results: {exc}", "landing", exc.dropped)
+        ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("worker_loop: landing failed pre-count for job %s", job_id)
+        _mark_failed(job_id, f"failed to land results: {exc}", "landing")
         ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
 
 
 async def _run_translation(
     ctx: JobContext,
     job_id: str,
+    user_id: str,
     worker: str,
     src_lang: str,
     targets: list[str],
 ) -> StreamOutcome:
-    """Resolve worker, parse input.srt → cues, stream-translate."""
-    base_url = worker_base_url(worker)
-    raw_input = ctx.storage.get(ctx.dev_user_id, job_id, "input.srt")
+    """Parse input.srt → cues, translate against the ``worker`` backend row."""
+    raw_input = ctx.storage.get(user_id, job_id, "input.srt")
     cues = parse(raw_input.decode("utf-8"))
     segments = build_segments(cues, src_lang)
 
-    def on_progress(fraction: float) -> None:
+    def on_progress(progress: float) -> None:
         # Sync DB write inside an async callback — SQLite is fast; the
         # event loop briefly blocks. Acceptable at slice-3 volume.
         try:
             with session_scope() as session:
                 row = session.get(Job, job_id)
                 if row is not None and row.status == "processing":
-                    row.progress = float(fraction)
+                    raw_target_progress = getattr(progress, "by_target", None)
+                    if isinstance(raw_target_progress, dict):
+                        from .models import progress_to_json
+
+                        progress_by_target = cast(dict[str, dict[str, int]], raw_target_progress)
+                        row.progress_by_target = progress_to_json(progress_by_target)
+                        done = sum(item["done"] for item in progress_by_target.values())
+                        total = sum(item["total"] for item in progress_by_target.values())
+                        row.progress = done / total if total else 0.0
+                    else:  # Backwards-compatible test/custom worker clients.
+                        row.progress = float(progress)
                     session.add(row)
         except Exception:  # noqa: BLE001 — progress write must not kill the job
             logger.warning("worker_loop: progress write failed for %s", job_id)
 
     client = ctx.worker_client
     assert client is not None  # __post_init__ guarantees this
-    result = await client(base_url, src_lang, targets, segments, on_progress)
+    result = await client(worker, src_lang, targets, segments, on_progress)
     if isinstance(result, StreamOutcome):
         return result
     # Tests may pass a fake returning a plain dict — coerce for symmetry.
@@ -342,34 +493,46 @@ async def _run_translation(
     )
 
 
-def _land_results(ctx: JobContext, job_id: str, outcome: StreamOutcome) -> None:
+def _land_results(ctx: JobContext, job_id: str, user_id: str, outcome: StreamOutcome) -> None:
     """Write one output.<lang>.srt per target, then mark the job done."""
-    cues = parse(ctx.storage.get(ctx.dev_user_id, job_id, "input.srt").decode("utf-8"))
-    outputs = _build_outputs(cues, outcome)
+    cues = parse(ctx.storage.get(user_id, job_id, "input.srt").decode("utf-8"))
+    outputs, dropped = _build_outputs(cues, outcome)
 
-    for lang, srt_text in outputs.items():
-        ctx.storage.save(
-            ctx.dev_user_id,
-            job_id,
-            f"output.{lang}.srt",
-            srt_text.encode("utf-8"),
-        )
+    try:
+        for lang, srt_text in outputs.items():
+            ctx.storage.save(
+                user_id,
+                job_id,
+                f"output.{lang}.srt",
+                srt_text.encode("utf-8"),
+            )
 
-    with session_scope() as session:
-        row = session.get(Job, job_id)
-        if row is None:
-            logger.error("worker_loop: job %s vanished before landing", job_id)
-            return
-        row.status = "done"
-        row.progress = 1.0
-        row.error = None
-        row.finished_at = datetime.now(UTC)
-        session.add(row)
-        session.commit()
+        with session_scope() as session:
+            row = session.get(Job, job_id)
+            if row is None:
+                raise RuntimeError(f"job {job_id} vanished before landing")
+            row.status = "done"
+            row.progress = 1.0
+            row.error = None
+            row.error_kind = None
+            row.dropped_by_target = dropped_to_json(dropped)
+            row.finished_at = datetime.now(UTC)
+            debit_job_once(session, row, ctx.free_tier_monthly_limit)
+            session.add(row)
+            session.commit()
+    except Exception as exc:
+        raise LandingError(str(exc), dropped=dropped) from exc
+    if sum(dropped.values()) > 0:
+        logger.warning("worker_loop: job %s dropped cues by target: %s", job_id, dropped)
     ctx.notifier.notify_done(job_id)
 
 
-def _mark_failed(job_id: str, message: str) -> None:
+def _mark_failed(
+    job_id: str,
+    message: str,
+    kind: str,
+    dropped: dict[str, int] | None = None,
+) -> None:
     try:
         with session_scope() as session:
             row = session.get(Job, job_id)
@@ -377,19 +540,26 @@ def _mark_failed(job_id: str, message: str) -> None:
                 return
             row.status = "failed"
             row.error = message
+            row.error_kind = kind
+            if dropped is not None:
+                row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)
             session.add(row)
     except Exception:  # noqa: BLE001 — never raise from failure path
         logger.exception("worker_loop: failed to mark job %s as failed", job_id)
 
 
-def _build_outputs(cues: list[Cue], outcome: StreamOutcome) -> dict[str, str]:
+def _build_outputs(
+    cues: list[Cue], outcome: StreamOutcome
+) -> tuple[dict[str, str], dict[str, int]]:
     """Per-target SRT: clone cues, swap text with translated text by id."""
     by_id: dict[int, dict[str, Any]] = {
         int(seg["id"]): seg for seg in outcome.segments if "id" in seg
     }
     outputs: dict[str, str] = {}
+    dropped: dict[str, int] = {}
     for tgt in outcome.targets:
+        count = 0
         translated: list[Cue] = []
         for cue in cues:
             entry = by_id.get(cue.index)
@@ -398,8 +568,10 @@ def _build_outputs(cues: list[Cue], outcome: StreamOutcome) -> dict[str, str]:
                 translated.append(Cue(cue.index, cue.start, cue.end, text))
             else:
                 translated.append(cue)
+                count += 1
         outputs[tgt] = serialize(translated)
-    return outputs
+        dropped[tgt] = count
+    return outputs, dropped
 
 
 def enqueue_pending(ctx: JobContext, session: Session) -> int:

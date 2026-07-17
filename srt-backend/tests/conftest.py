@@ -43,8 +43,13 @@ def temp_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
     db_url = f"sqlite:///{db_dir / 'test.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("STORAGE_ROOT", str(storage_dir))
-    # Default WORKERS includes cloud/mlx; tests resolve worker ids via this.
-    monkeypatch.setenv("WORKERS", "mlx=http://localhost:5732,cloud=http://localhost:5733")
+    # Pin dev auth so these integration tests are hermetic: the app's
+    # load_dotenv(".env") must not decide auth mode from a developer's local
+    # .env (which may be AUTH_MODE=google). load_dotenv won't override these.
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    # Default LLM_BACKENDS enables cloud/mlx; tests resolve worker ids via this.
+    monkeypatch.setenv("LLM_BACKENDS", "mlx,cloud")
     yield {"DATABASE_URL": db_url, "STORAGE_ROOT": str(storage_dir)}
     shutil.rmtree(db_dir, ignore_errors=True)
     shutil.rmtree(storage_dir, ignore_errors=True)

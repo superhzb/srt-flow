@@ -12,10 +12,21 @@ format round-trips byte-for-byte through `serialize(parse(s))`.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-__all__ = ["Cue", "ParseError", "cue_to_dict", "dict_to_cue", "parse", "serialize"]
+__all__ = [
+    "BilingualDetection",
+    "BilingualDetector",
+    "Cue",
+    "ParseError",
+    "build_stacked_srt",
+    "cue_to_dict",
+    "dict_to_cue",
+    "parse",
+    "serialize",
+    "split_bilingual",
+]
 
 _TIMESTAMP = r"\d{1,2}:\d{2}:\d{2}[,.]\d{3}"
 _TIMESPAN = re.compile(rf"^\s*({_TIMESTAMP})\s*-->\s*({_TIMESTAMP})\s*$")
@@ -41,6 +52,18 @@ class Cue:
     start: str
     end: str
     text: str
+
+
+@dataclass(frozen=True)
+class BilingualDetection:
+    """Result of detecting a consistent two-line, two-language cue pattern."""
+
+    is_bilingual: bool
+    line_langs: list[str]
+    confidence: float
+
+
+BilingualDetector = Callable[[list[Cue]], BilingualDetection]
 
 
 def parse(payload: str) -> list[Cue]:
@@ -151,6 +174,63 @@ def serialize(cues: list[Cue]) -> str:
         out.append(f"{cue.index}\n{start} --> {end}\n{cue.text}")
 
     return "\n\n".join(out) + "\n"
+
+
+def split_bilingual(cues: list[Cue], source_line: int) -> tuple[list[Cue], list[Cue]]:
+    """Split two-line cues into source and carried-language cue lists."""
+    if source_line not in (0, 1):
+        raise ValueError("source_line must be 0 or 1")
+
+    source_cues: list[Cue] = []
+    carried_cues: list[Cue] = []
+    other_line = 1 - source_line
+    for cue in cues:
+        lines = cue.text.split("\n")
+        if len(lines) == 2:
+            source_cues.append(
+                Cue(index=cue.index, start=cue.start, end=cue.end, text=lines[source_line])
+            )
+            carried_cues.append(
+                Cue(index=cue.index, start=cue.start, end=cue.end, text=lines[other_line])
+            )
+        else:
+            source_cues.append(cue)
+    return source_cues, carried_cues
+
+
+def build_stacked_srt(
+    source_lang: str,
+    source_cues: list[Cue],
+    target_texts: dict[str, dict[int, str]],
+    order: list[str],
+) -> str:
+    """Assemble stored source and target text into one ordered SRT document."""
+    if not order:
+        raise ValueError("at least one language required")
+    for lang in order:
+        if lang != source_lang and lang not in target_texts:
+            raise ValueError(f"unknown language {lang!r}")
+
+    stacked: list[Cue] = []
+    for source_cue in source_cues:
+        lines: list[str] = []
+        for lang in order:
+            if lang == source_lang:
+                lines.append(source_cue.text)
+            else:
+                target_text = target_texts[lang].get(source_cue.index)
+                if target_text is not None:
+                    lines.append(target_text)
+        text = "\n".join(lines) if lines else source_cue.text
+        stacked.append(
+            Cue(
+                index=source_cue.index,
+                start=source_cue.start,
+                end=source_cue.end,
+                text=text,
+            )
+        )
+    return serialize(stacked)
 
 
 def _canonical_ts(ts: str) -> str:
