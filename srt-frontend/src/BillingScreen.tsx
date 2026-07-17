@@ -24,6 +24,7 @@ import {
 import { usePoll } from "./hooks.ts";
 import { formatCurrency, formatLedgerDate } from "./lib.ts";
 import { Card } from "./ui.tsx";
+import { track } from "./analytics.ts";
 
 type LoadState =
   | { kind: "loading" }
@@ -121,6 +122,7 @@ export function BillingScreen({
   async function handleCheckout(pack: CreditPack) {
     setOpeningPack(pack);
     setCheckoutError(null);
+    track("cta_clicked", { cta: `buy_${pack}` });
     try {
       const { url } = await startCheckout(pack);
       window.location.href = url;

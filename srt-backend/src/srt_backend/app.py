@@ -45,6 +45,7 @@ from starlette.types import Scope
 
 from srt_backend.app_store import AppStore
 from srt_backend.detection import detect_bilingual
+from srt_backend.routes_events import router as events_router
 from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
 from srt_backend.routes_workers import router as workers_router
@@ -166,6 +167,7 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     app.include_router(srt_router, prefix="/api")
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
+    app.include_router(events_router, prefix="/api")
     register_admin(app)
 
     frontend_dist = frontend_dist or (Path(__file__).resolve().parents[3] / "srt-frontend" / "dist")

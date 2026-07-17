@@ -20,7 +20,7 @@ __all__ = [
     # models
     "Job",
     "CreditLedgerEntry",
-    "FunnelEvent",
+    "Event",
     "BalanceSnapshot",
     "balance_snapshot",
     "billed_minutes",
@@ -32,6 +32,14 @@ __all__ = [
     "dropped_to_json",
     "tgt_langs_from_csv",
     "tgt_langs_to_csv",
+    # events
+    "CLIENT_ALLOWED_EVENTS",
+    "DEFAULT_RETENTION_DAYS",
+    "EVENT_CATALOG",
+    "EventSpec",
+    "anonymize_old_events",
+    "record_event",
+    "validate_props",
     # orchestration
     "DEV_USER_ID",
     "DEFAULT_DEV_USER_EMAIL",
@@ -81,9 +89,18 @@ from .db import (
     run_migrations,
     session_scope,
 )
+from .events import (
+    CLIENT_ALLOWED_EVENTS,
+    DEFAULT_RETENTION_DAYS,
+    EVENT_CATALOG,
+    EventSpec,
+    anonymize_old_events,
+    record_event,
+    validate_props,
+)
 from .models import (
     CreditLedgerEntry,
-    FunnelEvent,
+    Event,
     Job,
     ProcessedEvent,
     User,

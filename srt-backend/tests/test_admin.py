@@ -136,6 +136,15 @@ def test_admin_access_matrix_and_read_only_views(
         assert logout.headers["location"] == "/"
         assert 'srt_session=""' in logout.headers["set-cookie"]
 
+        client.cookies.set("srt_session", _token("Admin-Sub", secret))
+        analytics = client.get("/admin/analytics")
+        assert analytics.status_code == 200
+        assert "<!DOCTYPE html>" in analytics.text
+        assert "/admin/statics/css/tabler.min.css" in analytics.text
+        assert "class='page-wrapper'" in analytics.text
+        assert "class='table table-vcenter card-table'" in analytics.text
+        assert "Sign-up" in analytics.text and "Job funnel" in analytics.text
+
     paths = {getattr(route, "path", "") for route in app.routes}
     assert not any(path.startswith("/api/db") for path in paths)
 

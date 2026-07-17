@@ -28,6 +28,7 @@ import {
   savePendingTranslation,
   takePendingTranslation,
 } from "./clientStorage.ts";
+import { track } from "./analytics.ts";
 
 type EnqueuedJob = { entry: FileEntry; jobId: string };
 type EnqueueFailure = { entry: FileEntry; message: string };
@@ -113,6 +114,12 @@ export default function App() {
   const previousStage = useRef<Stage>("idle");
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  // One screen_viewed per effective screen change (landing overrides tab).
+  const screen = showLanding ? "landing" : tab;
+  useEffect(() => {
+    track("screen_viewed", { screen });
+  }, [screen]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -441,6 +448,7 @@ export default function App() {
       return;
     }
     setDecisionOpen(false);
+    track("demo_started");
     setWorkflow((previous) => ({ ...previous, stage: "demo" }));
   }
 

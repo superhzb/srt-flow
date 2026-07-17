@@ -116,3 +116,45 @@ export async function listDemoEntries(): Promise<DemoHistoryEntry[]> {
 export async function clearClientRecords() {
   await transaction("readwrite", (store) => store.clear());
 }
+
+// --- Analytics identity (localStorage, synchronous) -----------------------
+//
+// anon_id: stable per-browser id, sent before and after login so events can
+// be joined anon→user at query time. session_id: rotates after 30 min of
+// inactivity. Both are opaque UUIDs — no PII.
+
+const ANON_KEY = "srt-flow-anon-id";
+const SESSION_KEY = "srt-flow-session";
+const SESSION_TTL_MS = 30 * 60 * 1000;
+
+function uuid(): string {
+  return crypto.randomUUID();
+}
+
+export function getAnonId(): string {
+  let id = localStorage.getItem(ANON_KEY);
+  if (!id) {
+    id = uuid();
+    localStorage.setItem(ANON_KEY, id);
+  }
+  return id;
+}
+
+export function getSessionId(): string {
+  const now = Date.now();
+  let id: string | null = null;
+  let lastSeen = 0;
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { id: string; lastSeen: number };
+      id = parsed.id;
+      lastSeen = parsed.lastSeen;
+    }
+  } catch {
+    id = null;
+  }
+  if (!id || now - lastSeen > SESSION_TTL_MS) id = uuid();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ id, lastSeen: now }));
+  return id;
+}

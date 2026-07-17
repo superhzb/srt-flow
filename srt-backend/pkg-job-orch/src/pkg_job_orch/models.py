@@ -16,12 +16,12 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Column, DateTime
+from sqlalchemy import JSON, Column, DateTime, Index
 from sqlmodel import Field, SQLModel
 
 __all__ = [
     "CreditLedgerEntry",
-    "FunnelEvent",
+    "Event",
     "Job",
     "JobStatus",
     "ProcessedEvent",
@@ -135,15 +135,27 @@ class CreditLedgerEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 
-class FunnelEvent(SQLModel, table=True):
-    """Queryable sign-up/checkout funnel event."""
+class Event(SQLModel, table=True):
+    """Generic append-only product-analytics event.
 
-    __tablename__: Any = "funnel_events"
+    One row = one thing that happened. ``props`` holds whitelisted,
+    non-PII detail (see ``events.EVENT_CATALOG``). ``created_at`` is
+    always server-set — a client-supplied value is ignored on ingest.
+    ``dedup_key`` (UNIQUE) makes keyed emission at-most-once: a repeat
+    insert is silently ignored rather than duplicating the fact.
+    """
+
+    __tablename__: Any = "event"
+    __table_args__ = (Index("ix_event_type_created_at", "event_type", "created_at"),)
 
     id: str = Field(primary_key=True)
-    user_id: str = Field(foreign_key="user.id", index=True)
     event_type: str = Field(index=True)
-    pack: str | None = Field(default=None)
+    user_id: str | None = Field(default=None, foreign_key="user.id", index=True)
+    anon_id: str | None = Field(default=None)  # pre-login continuity, joined at query time
+    source: str = Field(default="server")  # 'server' | 'client'
+    session_id: str | None = Field(default=None)
+    dedup_key: str | None = Field(default=None, unique=True)
+    props: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pkg_srt_services.api import Cue
 from sqlmodel import Session, func, select
 
+from .events import record_event
 from .models import CreditLedgerEntry, Job, User, tgt_langs_from_csv
 
 
@@ -88,13 +89,15 @@ def debit_job_once(session: Session, job: Job, free_limit: int) -> bool:
     snapshot = balance_snapshot(session, job.user_id, free_limit, month=month)
     billed = billed_minutes(job.source_minutes, len(tgt_langs_from_csv(job.tgt_langs)))
     purchased_debit = max(0, billed - snapshot.free_remaining)
+    ledger_entry_id = uuid.uuid4().hex
+    balance_after = user.purchased_minutes - purchased_debit
     session.add(
         CreditLedgerEntry(
-            id=uuid.uuid4().hex,
+            id=ledger_entry_id,
             user_id=job.user_id,
             entry_type="job_debit",
             minutes_delta=-purchased_debit,
-            balance_after=user.purchased_minutes - purchased_debit,
+            balance_after=balance_after,
             usage_minutes=billed,
             usage_month=month,
             idempotency_key=f"job:{job.id}",
@@ -104,6 +107,21 @@ def debit_job_once(session: Session, job: Job, free_limit: int) -> bool:
     )
     user.purchased_minutes -= purchased_debit
     session.add(user)
+    # One debit per job (the job_id existence check above guards re-entry);
+    # key on the ledger row so the fact is at-most-once.
+    record_event(
+        session,
+        "credits_debited",
+        user_id=job.user_id,
+        dedup_key=ledger_entry_id,
+        props={
+            "reason": "successful translation",
+            "amount": purchased_debit,
+            "balance_after": balance_after,
+            "job_id": job.id,
+            "ledger_entry_id": ledger_entry_id,
+        },
+    )
     return True
 
 
