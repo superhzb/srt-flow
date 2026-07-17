@@ -62,7 +62,9 @@ const ACCEPT = ".srt";
 const EMPTY_WORKFLOW: Workflow = {
   stage: "idle",
   entries: [],
-  worker: "cloud",
+  // Selected once ConfigureScreen loads /api/workers; the backend rejects an
+  // unregistered worker id, so we never default to a hardcoded literal.
+  worker: "",
   targets: [],
   jobs: [],
   enqueueFailures: [],
@@ -721,6 +723,10 @@ export default function App() {
                       targets={workflow.targets}
                       onTargetsChange={(targets) =>
                         setWorkflow((previous) => ({ ...previous, targets }))
+                      }
+                      worker={workflow.worker}
+                      onWorkerChange={(worker) =>
+                        setWorkflow((previous) => ({ ...previous, worker }))
                       }
                       translateButtonRef={translateButtonRef}
                     />
