@@ -97,17 +97,7 @@ def detect(cues: list[Cue]) -> Detection:
     if not texts:
         return Detection(lang=None, confidence=0.0)
 
-    sample = " ".join(texts)
-    values = _get_detector().compute_language_confidence_values(sample)
-    if not values:
-        return Detection(lang=None, confidence=0.0)
-
-    top = values[0]
-    confidence = float(top.value)
-    code = _detect_code(sample)
-    if code is None:
-        return Detection(lang=None, confidence=confidence)
-
+    code, confidence = _detect_sample(" ".join(texts))
     return Detection(lang=code, confidence=confidence)
 
 
@@ -126,11 +116,6 @@ def _detect_sample(sample: str) -> tuple[str | None, float]:
     if code == "zh" and _is_traditional(sample):
         code = "zh-TW"
     return code, confidence
-
-
-def _detect_code(sample: str) -> str | None:
-    """Return one supported language code for a text sample, when confident."""
-    return _detect_sample(sample)[0]
 
 
 def detect_bilingual(cues: list[Cue]) -> BilingualDetection:
