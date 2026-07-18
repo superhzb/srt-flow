@@ -3,4 +3,4 @@ Allow: /
 Disallow: /admin
 Disallow: /api
 
-Sitemap: https://www.srt-flow.com/sitemap.xml
+Sitemap: https://app.srt-flow.com/sitemap.xml

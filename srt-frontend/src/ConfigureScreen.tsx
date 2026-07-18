@@ -7,11 +7,15 @@ import {
   getWorkers,
   type BillingBalance,
   type LanguageInfo,
-  type PrepareResponse,
   type WorkerInfo,
 } from "./api.ts";
 import { ErrorBanner, LanguagePill } from "./components.tsx";
 import { DEMO_LANGUAGES } from "./demoFixtures.ts";
+import {
+  carriedLanguage,
+  effectiveTargets,
+  type FileEntry,
+} from "./fileEntry.ts";
 import {
   billedCreditMinutes,
   formatDuration,
@@ -27,18 +31,6 @@ const MAX_TARGETS = 3;
 // first registered. Returns "" when no workers are available.
 function defaultWorkerId(workers: WorkerInfo[]): string {
   return (workers.find((worker) => worker.healthy) ?? workers[0])?.id ?? "";
-}
-
-export interface FileEntry {
-  id: string;
-  file: File;
-  name: string;
-  status: "parsing" | "ready" | "error";
-  generation: number;
-  prepare?: PrepareResponse;
-  sourceLang?: string;
-  sourceLine?: number;
-  error?: string;
 }
 
 interface Props {
@@ -160,19 +152,6 @@ export function ConfigureScreen({
 
   const targets = new Set(targetValues);
 
-  const carriedLanguage = (entry: FileEntry): string | undefined => {
-    const langs = entry.prepare?.bilingual?.line_langs;
-    return langs && entry.sourceLine !== undefined
-      ? langs[1 - entry.sourceLine]
-      : undefined;
-  };
-  const effectiveTargets = (entry: FileEntry): string[] => {
-    const carried = carriedLanguage(entry);
-    return [...targets].filter(
-      (target) => target !== entry.sourceLang && target !== carried,
-    );
-  };
-
   const parsingCount = entries.filter(
     (entry) => entry.status === "parsing",
   ).length;
@@ -180,20 +159,20 @@ export function ConfigureScreen({
     (entry) =>
       entry.status === "ready" &&
       Boolean(entry.sourceLang) &&
-      effectiveTargets(entry).length > 0,
+      effectiveTargets(entry, targets).length > 0,
   );
   const skippedCount = entries.filter(
     (entry) =>
       entry.status === "ready" &&
       Boolean(entry.sourceLang) &&
       targets.size > 0 &&
-      effectiveTargets(entry).length === 0,
+      effectiveTargets(entry, targets).length === 0,
   ).length;
   const selectedWorker = workers.find((item) => item.id === worker);
   // Billed = source minutes × target languages per file (option A pricing).
   // Drop the source language so the count matches the backend's dedup.
   const creditMinutes = processable.reduce((total, entry) => {
-    const langs = effectiveTargets(entry).length;
+    const langs = effectiveTargets(entry, targets).length;
     return total + billedCreditMinutes(entry.prepare!.cues, langs);
   }, 0);
   const quotaExceeded = Boolean(
@@ -236,7 +215,7 @@ export function ConfigureScreen({
   );
   const sourceCount = sourceLanguages.size;
   const totalTracks = entries.reduce(
-    (count, entry) => count + effectiveTargets(entry).length,
+    (count, entry) => count + effectiveTargets(entry, targets).length,
     0,
   );
 
@@ -267,7 +246,7 @@ export function ConfigureScreen({
 
       <div className="grid gap-2 sm:grid-cols-2">
         {entries.map((entry) => {
-          const newTargets = effectiveTargets(entry);
+          const newTargets = effectiveTargets(entry, targets);
           const noEffectiveTarget =
             entry.status === "ready" &&
             targets.size > 0 &&

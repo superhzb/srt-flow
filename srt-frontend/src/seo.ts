@@ -7,7 +7,7 @@ import { langMeta } from "./languages.ts";
 import { LANG_SLUG } from "./routes.ts";
 import type { LangCode } from "./demoLine.ts";
 
-export const SITE_URL = "https://www.srt-flow.com";
+export const SITE_URL = "https://app.srt-flow.com";
 /** 1200×630 social card. TODO: replace icon.png fallback with a real og.png. */
 export const OG_IMAGE = `${SITE_URL}/og.png`;
 

@@ -1,5 +1,5 @@
 import type { Cue } from "./api.ts";
-import type { FileEntry } from "./ConfigureScreen.tsx";
+import type { FileEntry } from "./fileEntry.ts";
 
 const DB_NAME = "srt-flow-client";
 const DB_VERSION = 1;
