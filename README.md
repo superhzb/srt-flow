@@ -32,8 +32,38 @@ Ports:
 - Backend: http://localhost:19205
 
 Other entrypoints: `make backend`, `make frontend` run one service each.
-`make serve` runs the backend serving the prebuilt frontend (deployment
-topology).
+`make dev` runs the Vite dev server and is for local development only — it does
+**not** prerender routes or emit `sitemap.xml`, so it must never back the public
+site.
+
+## Serve the production site
+
+The public site is served by FastAPI from the prebuilt, prerendered frontend —
+not the Vite dev server. Prerendering bakes per-route `<title>`, meta
+description, canonical, and Open Graph tags into static HTML and emits
+`sitemap.xml`, which crawlers require.
+
+```bash
+make build     # vite build + prerender routes + write dist/sitemap.xml
+make serve     # FastAPI serves srt-frontend/dist on :19205
+```
+
+Point the Cloudflare tunnel at the backend port (`19205`), not the frontend dev
+port. Rerun `make build` after any change that affects markup or SEO metadata.
+
+SEO metadata has one source of truth: `srt-frontend/src/seo.ts` (`SITE_URL`
+drives canonical, `sitemap.xml`, and og:url). The canonical host is
+`https://app.srt-flow.com`; the apex and `www` hosts 301-redirect to it.
+
+Verify a running deploy:
+
+```bash
+curl -s https://app.srt-flow.com/sitemap.xml | grep -o 'https://[a-z.]*srt-flow[^<]*' | head -1
+curl -s https://app.srt-flow.com/robots.txt
+curl -s https://app.srt-flow.com/translate/english-to-spanish/ | grep -o '<title>[^<]*'
+```
+
+All three must show the `app.srt-flow.com` host and the real page title.
 
 ## Validate
 
