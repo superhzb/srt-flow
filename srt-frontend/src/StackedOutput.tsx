@@ -144,7 +144,7 @@ export function StackedOutput({
             Language order
           </h2>
           <p className="mt-1 font-mono text-[10.5px] text-faint">
-            drag ⠿ to reorder — every line updates
+            drag ⠿ to reorder · toggle ◉ to show or hide
           </p>
         </div>
       )}
@@ -432,6 +432,16 @@ function SortableRow({
           {lang.toUpperCase()}
         </span>
         <span className="text-xs text-ink-muted">{meta.native}</span>
+        <button
+          type="button"
+          aria-label={`${included ? "Hide" : "Show"} ${meta.native} in review and download`}
+          aria-pressed={included}
+          title={`${included ? "Hide" : "Show"} in review and download`}
+          onClick={toggle}
+          className={`ml-auto grid h-7 w-7 place-items-center rounded-md transition-colors ${included ? "text-ink-muted hover:bg-accent-soft hover:text-accent-deep" : "bg-surface-inset text-faint hover:text-ink-muted"}`}
+        >
+          <VisibilityIcon visible={included} />
+        </button>
       </li>
     );
   }
@@ -469,5 +479,32 @@ function SortableRow({
         {included ? "included" : "excluded"}
       </button>
     </li>
+  );
+}
+
+function VisibilityIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {visible ? (
+        <>
+          <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+          <circle cx="12" cy="12" r="2.5" />
+        </>
+      ) : (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c6 0 9.5 6 9.5 6a15.7 15.7 0 0 1-2 2.8M6.3 6.3C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 4-.8" />
+        </>
+      )}
+    </svg>
   );
 }
