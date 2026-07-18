@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  errMessage,
   getBillingBalance,
   getMe,
   googleLoginUrl,
   logout,
-  prepareSrt,
-  retryJob,
-  startJob,
   type BillingBalance,
-  type JobStatusResponse,
   type Me,
 } from "./api.ts";
 import { BillingScreen } from "./BillingScreen.tsx";
-import { ConfigureScreen, type FileEntry } from "./ConfigureScreen.tsx";
+import { ConfigureScreen } from "./ConfigureScreen.tsx";
 import { FailureCard } from "./FailureCard.tsx";
 import { JobsScreen } from "./JobsScreen.tsx";
 import { LandingScreen } from "./LandingScreen.tsx";
@@ -27,26 +22,12 @@ import { DEMO_CUES, DEMO_FILENAME, sampleFile } from "./demoFixtures.ts";
 import {
   clearClientRecords,
   saveDemoEntry,
-  savePendingTranslation,
   takePendingTranslation,
 } from "./clientStorage.ts";
 import { track } from "./analytics.ts";
 import { HOME_META, setMeta } from "./seo.ts";
+import { EMPTY_WORKFLOW, useWorkflow, type Stage } from "./useWorkflow.ts";
 
-type EnqueuedJob = { entry: FileEntry; jobId: string };
-type EnqueueFailure = { entry: FileEntry; message: string };
-type Stage = "idle" | "configure" | "demo" | "enqueuing" | "enqueued";
-type Workflow = {
-  stage: Stage;
-  entries: FileEntry[];
-  worker: string;
-  targets: string[];
-  jobs: EnqueuedJob[];
-  enqueueFailures: EnqueueFailure[];
-  terminalJobs: Record<string, JobStatusResponse>;
-  // Bumped per job on retry to remount its poller and resume polling.
-  retryNonce: Record<string, number>;
-};
 type Tab = "translate" | "jobs" | "billing";
 type Theme = "light" | "dark";
 
@@ -64,26 +45,27 @@ function tabFromPath(pathname: string): Tab {
 
 const WELCOME_SEEN_KEY = "welcomeSeen";
 
-const EMPTY_WORKFLOW: Workflow = {
-  stage: "idle",
-  entries: [],
-  // Selected once ConfigureScreen loads /api/workers; the backend rejects an
-  // unregistered worker id, so we never default to a hardcoded literal.
-  worker: "",
-  targets: [],
-  jobs: [],
-  enqueueFailures: [],
-  terminalJobs: {},
-  retryNonce: {},
-};
-
 function initialTheme(): Theme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
 export default function App() {
   const [session, setSession] = useState<Me | null | undefined>(undefined);
-  const [workflow, setWorkflow] = useState<Workflow>(EMPTY_WORKFLOW);
+  const {
+    workflow,
+    setWorkflow,
+    reset,
+    submit,
+    updateEntries,
+    retry,
+    startRealProcessing,
+    signInWithPendingWork,
+    handleJobTerminal,
+    handleRetryJob,
+    doneJobs,
+    failedJobs,
+    processingComplete,
+  } = useWorkflow();
   const [tab, setTab] = useState<Tab>(() =>
     tabFromPath(window.location.pathname),
   );
@@ -194,7 +176,7 @@ export default function App() {
     return () => {
       live = false;
     };
-  }, [session]);
+  }, [session, setWorkflow]);
 
   useEffect(() => {
     if (!session) return;
@@ -252,106 +234,6 @@ export default function App() {
     );
   }, [workflow.stage]);
 
-  function parseEntry(entry: FileEntry) {
-    const generation = entry.generation;
-    prepareSrt(entry.file)
-      .then((prepare) => {
-        setWorkflow((previous) => {
-          if (previous.stage !== "configure") return previous;
-          const current = previous.entries.find((item) => item.id === entry.id);
-          if (
-            !current ||
-            current.status !== "parsing" ||
-            current.generation !== generation
-          )
-            return previous;
-          return {
-            ...previous,
-            entries: previous.entries.map((item) =>
-              item.id === entry.id
-                ? {
-                    ...item,
-                    status: "ready",
-                    prepare,
-                    sourceLang: prepare.bilingual
-                      ? prepare.bilingual.line_langs[0]
-                      : (prepare.detected_lang ?? ""),
-                    sourceLine: prepare.bilingual ? 0 : undefined,
-                    error: undefined,
-                  }
-                : item,
-            ),
-          };
-        });
-      })
-      .catch((error: unknown) => {
-        setWorkflow((previous) => {
-          if (previous.stage !== "configure") return previous;
-          const current = previous.entries.find((item) => item.id === entry.id);
-          if (
-            !current ||
-            current.status !== "parsing" ||
-            current.generation !== generation
-          )
-            return previous;
-          return {
-            ...previous,
-            entries: previous.entries.map((item) =>
-              item.id === entry.id
-                ? {
-                    ...item,
-                    status: "error",
-                    error: errMessage(error, "failed to parse file"),
-                  }
-                : item,
-            ),
-          };
-        });
-      });
-  }
-
-  function submit(files: File[]) {
-    const entries = files.map<FileEntry>((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      name: file.name,
-      status: "parsing",
-      generation: 0,
-    }));
-    setWorkflow({ ...EMPTY_WORKFLOW, stage: "configure", entries });
-    entries.forEach(parseEntry);
-  }
-
-  function updateEntries(change: (entries: FileEntry[]) => FileEntry[]) {
-    setWorkflow((previous) => {
-      if (previous.stage !== "configure") return previous;
-      const entries = change(previous.entries);
-      return entries.length === 0 ? EMPTY_WORKFLOW : { ...previous, entries };
-    });
-  }
-
-  function retry(id: string) {
-    if (workflow.stage !== "configure") return;
-    const current = workflow.entries.find((entry) => entry.id === id);
-    if (!current) return;
-    const retried: FileEntry = {
-      ...current,
-      status: "parsing",
-      generation: current.generation + 1,
-      error: undefined,
-      prepare: undefined,
-      sourceLang: undefined,
-      sourceLine: undefined,
-    };
-    setWorkflow((previous) => ({
-      ...previous,
-      entries: previous.entries.map((entry) =>
-        entry.id === id ? retried : entry,
-      ),
-    }));
-    parseEntry(retried);
-  }
-
   function handleProcess() {
     if (!session) {
       setDecisionError(null);
@@ -359,83 +241,6 @@ export default function App() {
       return;
     }
     void startRealProcessing();
-  }
-
-  async function startRealProcessing() {
-    if (workflow.stage !== "configure") return;
-    const { worker, targets } = workflow;
-    const snapshot = workflow.entries;
-    const carriedLanguage = (entry: FileEntry) => {
-      const langs = entry.prepare?.bilingual?.line_langs;
-      return langs && entry.sourceLine !== undefined
-        ? langs[1 - entry.sourceLine]
-        : undefined;
-    };
-    const entries = snapshot.filter(
-      (entry) =>
-        entry.status === "ready" &&
-        entry.prepare &&
-        entry.sourceLang &&
-        targets.some(
-          (target) =>
-            target !== entry.sourceLang && target !== carriedLanguage(entry),
-        ),
-    );
-    setWorkflow((previous) => ({
-      ...previous,
-      stage: "enqueuing",
-      worker,
-      targets,
-    }));
-    const jobs: EnqueuedJob[] = [];
-    const enqueueFailures: EnqueueFailure[] = [];
-    for (let offset = 0; offset < entries.length; offset += 4) {
-      const chunk = entries.slice(offset, offset + 4);
-      const results = await Promise.allSettled(
-        chunk.map((entry) =>
-          startJob({
-            cues: entry.prepare!.cues,
-            sourceLang: entry.sourceLang!,
-            sourceLine: entry.sourceLine,
-            targets: targets.filter(
-              (target) =>
-                target !== entry.sourceLang &&
-                target !== carriedLanguage(entry),
-            ),
-            worker,
-            filename: entry.name,
-          }),
-        ),
-      );
-      results.forEach((result, index) => {
-        const entry = chunk[index];
-        if (result.status === "fulfilled")
-          jobs.push({ entry, jobId: result.value.job_id });
-        else
-          enqueueFailures.push({
-            entry,
-            message: errMessage(result.reason, "failed to queue"),
-          });
-      });
-    }
-    setWorkflow((previous) => ({
-      ...previous,
-      stage: "enqueued",
-      jobs,
-      enqueueFailures,
-    }));
-  }
-
-  async function signInWithPendingWork() {
-    if (workflow.stage !== "configure") return;
-    await savePendingTranslation({
-      schemaVersion: 1,
-      createdAt: Date.now(),
-      entries: workflow.entries,
-      worker: workflow.worker,
-      targets: workflow.targets,
-    });
-    window.location.href = googleLoginUrl();
   }
 
   function startDemo() {
@@ -470,10 +275,10 @@ export default function App() {
         ["en", ...targets].map((lang) => [lang, DEMO_CUES[lang]]),
       ),
     }).then(() => {
-      setWorkflow(EMPTY_WORKFLOW);
+      reset();
       setTab("jobs");
     });
-  }, [workflow.targets]);
+  }, [workflow.targets, reset]);
 
   async function handleLogout() {
     setAccountMenuOpen(false);
@@ -488,21 +293,21 @@ export default function App() {
       /* unavailable */
     }
     setSession(null);
-    setWorkflow(EMPTY_WORKFLOW);
+    reset();
     setTab("translate");
     setShowLanding(true);
     window.history.replaceState({}, "", "/");
   }
 
   function openStudio() {
-    setWorkflow(EMPTY_WORKFLOW);
+    reset();
     setShowLanding(false);
     setTab("translate");
     window.history.replaceState({}, "", "/app");
   }
 
   function openTranslate() {
-    setWorkflow(EMPTY_WORKFLOW);
+    reset();
     setShowLanding(false);
     setTab("translate");
     window.history.replaceState({}, "", "/app");
@@ -531,60 +336,17 @@ export default function App() {
   }
 
   function viewResults() {
-    setWorkflow(EMPTY_WORKFLOW);
+    reset();
     setTab("jobs");
     window.history.replaceState({}, "", TAB_PATHS.jobs);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const handleJobTerminal = useCallback(
-    (jobId: string, result: JobStatusResponse) => {
-      setWorkflow((previous) =>
-        previous.terminalJobs[jobId]
-          ? previous
-          : {
-              ...previous,
-              terminalJobs: { ...previous.terminalJobs, [jobId]: result },
-            },
-      );
-    },
-    [],
-  );
-
-  const handleRetryJob = useCallback(async (jobId: string) => {
-    // Server resets the row to pending and re-queues it (input.srt retained).
-    await retryJob(jobId);
-    // Drop the terminal snapshot and bump the nonce so the poller remounts
-    // and transitions failed → processing without a re-upload.
-    setWorkflow((previous) => {
-      const nextTerminal = { ...previous.terminalJobs };
-      delete nextTerminal[jobId];
-      return {
-        ...previous,
-        terminalJobs: nextTerminal,
-        retryNonce: {
-          ...previous.retryNonce,
-          [jobId]: (previous.retryNonce[jobId] ?? 0) + 1,
-        },
-      };
-    });
-  }, []);
-
   const restart = useCallback(() => {
-    setWorkflow(EMPTY_WORKFLOW);
+    reset();
     setTab("translate");
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
-  const doneJobs = workflow.jobs.filter(
-    (job) => workflow.terminalJobs[job.jobId]?.status === "done",
-  );
-  const failedJobs = workflow.jobs.filter(
-    (job) => workflow.terminalJobs[job.jobId]?.status === "failed",
-  );
-  const processingComplete =
-    workflow.stage === "enqueued" &&
-    workflow.jobs.every((job) => Boolean(workflow.terminalJobs[job.jobId]));
+  }, [reset]);
 
   if (session === undefined) return <div className="min-h-screen bg-surface" />;
   return (
