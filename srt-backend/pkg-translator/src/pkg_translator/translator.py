@@ -17,6 +17,23 @@ logger = logging.getLogger(__name__)
 Translator = Callable[[str, TranslationConfig], str]
 
 
+class UnsupportedLanguageError(ValueError):
+    """A requested source/target language has no catalog entry.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
+    working; the distinct type lets the orchestrator classify the failure as
+    ``unsupported_language`` instead of the ``worker_stream`` catch-all.
+    """
+
+
+class NoBackendError(RuntimeError):
+    """No LLM backend was configured for this translation run.
+
+    Subclasses ``RuntimeError`` to preserve prior behavior while letting the
+    orchestrator classify the failure as ``worker_config``.
+    """
+
+
 class LLMBackend(Protocol):
     def ensure_model_available(self, config: TranslationConfig) -> None: ...
 
@@ -52,7 +69,7 @@ def translate_segments(
     requested_targets = list(dict.fromkeys(targets))
     src_lang_cfg = load_lang(source_lang, active_config.languages_path)
     if src_lang_cfg is None:
-        raise ValueError(f"Unsupported source language: {source_lang}")
+        raise UnsupportedLanguageError(f"Unsupported source language: {source_lang}")
 
     supported_pairs = [
         make_pair(src_lang_cfg, tgt_cfg)
@@ -66,7 +83,7 @@ def translate_segments(
         logger.warning("Skipping unsupported target language: %s", target)
 
     if not supported_pairs:
-        raise ValueError("No requested target is a supported language")
+        raise UnsupportedLanguageError("No requested target is a supported language")
 
     if translator is None:
         active_backend.ensure_model_available(active_config)
@@ -219,7 +236,7 @@ def _build_prompt(
 
 class _RequireBackend:
     def ensure_model_available(self, _config: TranslationConfig) -> None:
-        raise RuntimeError("No LLM backend configured")
+        raise NoBackendError("No LLM backend configured")
 
     def generate_text(self, _prompt: str, _config: TranslationConfig) -> str:
-        raise RuntimeError("No LLM backend configured")
+        raise NoBackendError("No LLM backend configured")

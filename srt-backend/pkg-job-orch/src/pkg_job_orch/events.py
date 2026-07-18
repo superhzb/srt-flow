@@ -51,6 +51,7 @@ EVENT_CATALOG: dict[str, EventSpec] = {
     "job_created": EventSpec("server", frozenset({"job_id", "src_lang", "tgt_langs"})),
     "job_completed": EventSpec("server", frozenset({"job_id", "source_minutes"})),
     "job_failed": EventSpec("server", frozenset({"job_id", "error_kind"})),
+    "job_retried": EventSpec("server", frozenset({"job_id", "attempt"})),
     "checkout_started": EventSpec("server", frozenset({"pack"})),
     "purchase_completed": EventSpec("server", frozenset({"pack", "ledger_entry_id"})),
     "credits_debited": EventSpec(

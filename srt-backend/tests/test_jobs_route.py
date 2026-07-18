@@ -436,5 +436,104 @@ def test_failed_job_records_error(client: Any, fake_worker: Any) -> None:
     assert "results" not in body
 
 
+def test_failed_job_surfaces_error_detail_and_kind(client: Any) -> None:
+    from pkg_job_orch.api import WorkerStreamError
+
+    class _FailingClient:
+        async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            raise WorkerStreamError(
+                "boom",
+                kind="backend_unavailable",
+                detail="RuntimeError: RuntimeError('boom')",
+                failed_target="fr",
+            )
+
+    client.app.state.job_ctx.worker_client = _FailingClient()  # type: ignore[method-assign]
+    resp = client.post(
+        "/api/jobs",
+        json={"cues": [CUE_EN], "source_lang": "en", "targets": ["fr"], "worker": "mlx"},
+    )
+    job_id = resp.json()["job_id"]
+    body = _wait_for_status(client, job_id, {"failed"})
+    assert body["status"] == "failed"
+    assert body["error_kind"] == "backend_unavailable"
+    assert body["error_detail"] == "RuntimeError: RuntimeError('boom')"
+    assert body["failed_target"] == "fr"
+
+
+def test_retry_failed_job_completes_without_reupload(client: Any, fake_worker: Any) -> None:
+    from pkg_job_orch.api import WorkerStreamError
+
+    class _FlakyClient:
+        """Fails the first claim, succeeds thereafter."""
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            self.calls += 1
+            if self.calls == 1:
+                raise WorkerStreamError("boom", kind="backend_unavailable")
+            return await fake_worker(*args, **kwargs)
+
+    client.app.state.job_ctx.worker_client = _FlakyClient()  # type: ignore[method-assign]
+    resp = client.post(
+        "/api/jobs",
+        json={"cues": [CUE_EN], "source_lang": "en", "targets": ["fr"], "worker": "mlx"},
+    )
+    job_id = resp.json()["job_id"]
+    failed = _wait_for_status(client, job_id, {"failed"})
+    assert failed["status"] == "failed"
+    assert failed["attempts"] == 1
+
+    retry = client.post(f"/api/jobs/{job_id}/retry")
+    assert retry.status_code == 202
+    assert retry.json()["job_id"] == job_id
+
+    done = _wait_for_status(client, job_id, {"done"})
+    assert done["status"] == "done"
+    # Failure fields cleared on retry; attempts incremented on the re-claim.
+    assert done["error_kind"] is None
+    assert "error" not in done
+    assert done["attempts"] == 2
+
+
+def test_retry_non_failed_job_conflicts(client: Any, patched_worker: Any) -> None:
+    del patched_worker
+    resp = client.post(
+        "/api/jobs",
+        json={"cues": [CUE_EN], "source_lang": "en", "targets": ["fr"], "worker": "mlx"},
+    )
+    job_id = resp.json()["job_id"]
+    _wait_for_status(client, job_id, {"done"})
+    retry = client.post(f"/api/jobs/{job_id}/retry")
+    assert retry.status_code == 409
+
+
+def test_retry_unknown_job_404(client: Any) -> None:
+    assert client.post("/api/jobs/nonexistent/retry").status_code == 404
+
+
+def test_failed_job_is_not_charged(client: Any) -> None:
+    """Invariant: a job that never reaches done is never billed."""
+    from pkg_job_orch.api import WorkerStreamError
+
+    class _FailingClient:
+        async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            raise WorkerStreamError("boom", kind="worker_stream")
+
+    before = client.get("/api/billing/balance").json()
+    client.app.state.job_ctx.worker_client = _FailingClient()  # type: ignore[method-assign]
+    resp = client.post(
+        "/api/jobs",
+        json={"cues": [CUE_EN], "source_lang": "en", "targets": ["fr"], "worker": "mlx"},
+    )
+    job_id = resp.json()["job_id"]
+    _wait_for_status(client, job_id, {"failed"})
+    after = client.get("/api/billing/balance").json()
+    assert after["free_used"] == before["free_used"]
+    assert after["available_minutes"] == before["available_minutes"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -7,9 +7,11 @@ import {
   pollJob,
   type BillingBalance,
   type JobStatus,
+  type JobStatusResponse,
   type JobSummary,
 } from "./api.ts";
 import { ErrorBanner, QuotaBar } from "./components.tsx";
+import { errorCopy } from "./errorCopy.ts";
 import { usePoll } from "./hooks.ts";
 import { langMeta } from "./languages.ts";
 import { StackedOutput } from "./StackedOutput.tsx";
@@ -322,9 +324,13 @@ function JobReview({
             </h2>
             <StatusBadge status={job.status} />
           </div>
-          <p className="mt-2 text-sm text-ink-muted">
-            {job.error ?? `${(job.progress * 100).toFixed(0)}% complete`}
-          </p>
+          {job.status === "failed" ? (
+            <FailedDetail job={job} />
+          ) : (
+            <p className="mt-2 text-sm text-ink-muted">
+              {`${(job.progress * 100).toFixed(0)}% complete`}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -348,12 +354,34 @@ function QuotaFooter({ balance }: { balance: BillingBalance }) {
   );
 }
 
+function FailedDetail({ job }: { job: JobStatusResponse }) {
+  const copy = errorCopy(job.error_kind);
+  return (
+    <div className="mt-2 space-y-1">
+      <p className="text-sm font-medium text-red-800">{copy.title}</p>
+      <p className="text-sm text-ink-muted">{copy.description}</p>
+      <p className="text-sm text-ink-muted">
+        You weren't charged for this job.
+      </p>
+      {(job.error_detail ?? job.error) && (
+        <details className="text-xs text-ink-muted">
+          <summary className="cursor-pointer">Technical details</summary>
+          <p className="mt-1 font-mono break-words">
+            {job.error_kind ? `${job.error_kind}: ` : ""}
+            {job.error_detail ?? job.error}
+          </p>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const tone =
     status === "done"
       ? "bg-emerald-100 text-emerald-800"
       : status === "failed"
-        ? "bg-amber-100 text-amber-800"
+        ? "bg-red-100 text-red-800"
         : status === "processing"
           ? "bg-accent-soft text-accent-deep"
           : "bg-surface-inset text-ink-muted";

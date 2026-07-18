@@ -41,7 +41,15 @@ export interface LanguageInfo {
 }
 
 export type JobStatus = "pending" | "processing" | "done" | "failed";
-export type JobErrorKind = "worker_stream" | "internal" | "landing" | string;
+// Keep in sync with the backend's JobErrorKind docstring (models.py).
+export type JobErrorKind =
+  | "worker_stream"
+  | "unsupported_language"
+  | "worker_config"
+  | "backend_unavailable"
+  | "internal"
+  | "landing"
+  | string;
 
 // Slice-3 result shape: no inline srt — fetch via download_url.
 export interface JobResult {
@@ -75,6 +83,8 @@ export interface JobStatusResponse {
   targets?: TargetProgress[];
   eta_seconds?: number | null;
   source_minutes?: number;
+  error_detail?: string;
+  failed_target?: string;
 }
 
 export interface JobSummary {
@@ -183,6 +193,15 @@ export async function startJob(params: {
 
 export async function pollJob(jobId: string): Promise<JobStatusResponse> {
   return apiFetch<JobStatusResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
+// Re-queue a failed job without re-uploading — input.srt is retained
+// server-side. Returns the same job_id; the caller resumes polling.
+export async function retryJob(jobId: string): Promise<{ job_id: string }> {
+  return apiFetch<{ job_id: string }>(
+    `/api/jobs/${encodeURIComponent(jobId)}/retry`,
+    { method: "POST" },
+  );
 }
 
 export async function listJobs(): Promise<JobSummary[]> {

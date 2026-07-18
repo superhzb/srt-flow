@@ -22,7 +22,12 @@ from typing import Any, Protocol, cast
 from pkg_file_upload.api import Storage
 from pkg_llm_backend.api import Backend
 from pkg_srt_services.api import BilingualDetector, Cue, parse, serialize, split_bilingual
-from pkg_translator.api import BatchProgress, translate_segments
+from pkg_translator.api import (
+    BatchProgress,
+    NoBackendError,
+    UnsupportedLanguageError,
+    translate_segments,
+)
 from sqlmodel import Session, col, select
 
 from .config import DEFAULT_DEV_USER_EMAIL, load_settings
@@ -101,7 +106,69 @@ class StreamOutcome:
 
 
 class WorkerStreamError(RuntimeError):
-    """Raised on any backend-side failure (bad worker id, generation failure, …)."""
+    """Raised on any backend-side failure (bad worker id, generation failure, …).
+
+    Carries the classified ``kind`` (one of the values documented on
+    :data:`pkg_job_orch.models.JobErrorKind`) plus the debug ``detail``
+    (exception class + repr) and the ``failed_target`` in flight, so the
+    caller can persist them instead of collapsing everything to ``str(exc)``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "worker_stream",
+        detail: str | None = None,
+        failed_target: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.detail = detail
+        self.failed_target = failed_target
+
+
+# Network-ish failure signatures the LLM backends surface as opaque
+# RuntimeError/Exception text. Lowercased-substring match → backend_unavailable.
+_BACKEND_UNAVAILABLE_MARKERS: tuple[str, ...] = (
+    "timeout",
+    "timed out",
+    "connection",
+    "connect",
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+    "502",
+    "503",
+    "504",
+    "unavailable",
+    "network",
+)
+
+
+def _classify_backend_error(exc: Exception) -> str:
+    """Map a raised backend exception to a ``JobErrorKind`` string.
+
+    Typed causes win; otherwise sniff the message for network/timeout/
+    rate-limit markers. Falls back to ``worker_stream`` (the catch-all).
+    """
+    if isinstance(exc, UnsupportedLanguageError):
+        return "unsupported_language"
+    if isinstance(exc, NoBackendError):
+        return "worker_config"
+    if isinstance(exc, TimeoutError | ConnectionError):
+        return "backend_unavailable"
+    text = f"{type(exc).__name__} {exc}".lower()
+    if any(marker in text for marker in _BACKEND_UNAVAILABLE_MARKERS):
+        return "backend_unavailable"
+    return "worker_stream"
+
+
+def _error_detail(exc: Exception) -> str:
+    """Exception class + repr — the debug context ``str(exc)`` discards."""
+    return f"{type(exc).__name__}: {exc!r}"
 
 
 # Adapter helper — shared by routes (POST validation) and orchestration.
@@ -175,15 +242,19 @@ async def default_worker_client(
     try:
         config = worker_backend_config(worker_id)
     except WorkerResolutionError as exc:
-        raise WorkerStreamError(str(exc)) from exc
+        raise WorkerStreamError(
+            str(exc), kind="worker_config", detail=_error_detail(exc)
+        ) from exc
 
     progress_by_target: dict[str, dict[str, int]] = {}
     seen_targets: set[str] = set()
     batches_done = 0
     batches_total_sum = 0
+    last_target: str | None = None
 
     def fold_progress(progress: BatchProgress) -> None:
-        nonlocal batches_done, batches_total_sum
+        nonlocal batches_done, batches_total_sum, last_target
+        last_target = progress.target
         done = progress.batch_index + 1
         progress_by_target[progress.target] = {"done": done, "total": progress.batch_total}
         if progress.target not in seen_targets:
@@ -206,7 +277,12 @@ async def default_worker_client(
             _BACKEND,
         )
     except Exception as exc:  # noqa: BLE001 — surface any backend failure uniformly
-        raise WorkerStreamError(str(exc)) from exc
+        raise WorkerStreamError(
+            str(exc),
+            kind=_classify_backend_error(exc),
+            detail=_error_detail(exc),
+            failed_target=last_target,
+        ) from exc
 
     if on_progress is not None:
         completed = {
@@ -363,6 +439,8 @@ def recover_jobs(session: Session) -> int:
         job.progress = 0.0
         job.error = None
         job.error_kind = None
+        job.error_detail = None
+        job.failed_target = None
         session.add(job)
         reset += 1
     return reset
@@ -423,13 +501,32 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
     try:
         outcome = await _run_translation(ctx, job_id, user_id, worker, src_lang, targets)
     except WorkerStreamError as exc:
-        logger.exception("worker_loop: worker stream failed for job %s", job_id)
-        _mark_failed(job_id, str(exc), "worker_stream")
+        logger.exception(
+            "worker_loop: worker stream failed for job %s",
+            job_id,
+            extra={
+                "job_id": job_id,
+                "error_kind": exc.kind,
+                "error_class": type(exc).__name__,
+                "failed_target": exc.failed_target,
+            },
+        )
+        _mark_failed(
+            job_id,
+            str(exc),
+            exc.kind,
+            error_detail=exc.detail,
+            failed_target=exc.failed_target,
+        )
         ctx.notifier.notify_failed(job_id, str(exc))
         return
     except Exception as exc:  # noqa: BLE001 — never let the worker_loop die
-        logger.exception("worker_loop: translation crashed for job %s", job_id)
-        _mark_failed(job_id, f"internal error: {exc}", "internal")
+        logger.exception(
+            "worker_loop: translation crashed for job %s",
+            job_id,
+            extra={"job_id": job_id, "error_kind": "internal", "error_class": type(exc).__name__},
+        )
+        _mark_failed(job_id, f"internal error: {exc}", "internal", error_detail=_error_detail(exc))
         ctx.notifier.notify_failed(job_id, f"internal error: {exc}")
         return
 
@@ -437,12 +534,28 @@ async def _process_job(ctx: JobContext, job_id: str) -> None:
     try:
         _land_results(ctx, job_id, user_id, outcome)
     except LandingError as exc:
-        logger.exception("worker_loop: landing results failed for job %s", job_id)
-        _mark_failed(job_id, f"failed to land results: {exc}", "landing", exc.dropped)
+        logger.exception(
+            "worker_loop: landing results failed for job %s",
+            job_id,
+            extra={"job_id": job_id, "error_kind": "landing", "error_class": type(exc).__name__},
+        )
+        _mark_failed(
+            job_id,
+            f"failed to land results: {exc}",
+            "landing",
+            dropped=exc.dropped,
+            error_detail=_error_detail(exc),
+        )
         ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
     except Exception as exc:  # noqa: BLE001
-        logger.exception("worker_loop: landing failed pre-count for job %s", job_id)
-        _mark_failed(job_id, f"failed to land results: {exc}", "landing")
+        logger.exception(
+            "worker_loop: landing failed pre-count for job %s",
+            job_id,
+            extra={"job_id": job_id, "error_kind": "landing", "error_class": type(exc).__name__},
+        )
+        _mark_failed(
+            job_id, f"failed to land results: {exc}", "landing", error_detail=_error_detail(exc)
+        )
         ctx.notifier.notify_failed(job_id, f"failed to land results: {exc}")
 
 
@@ -516,6 +629,8 @@ def _land_results(ctx: JobContext, job_id: str, user_id: str, outcome: StreamOut
             row.progress = 1.0
             row.error = None
             row.error_kind = None
+            row.error_detail = None
+            row.failed_target = None
             row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)
             debit_job_once(session, row, ctx.free_tier_monthly_limit)
@@ -540,6 +655,9 @@ def _mark_failed(
     message: str,
     kind: str,
     dropped: dict[str, int] | None = None,
+    *,
+    error_detail: str | None = None,
+    failed_target: str | None = None,
 ) -> None:
     try:
         with session_scope() as session:
@@ -549,6 +667,8 @@ def _mark_failed(
             row.status = "failed"
             row.error = message
             row.error_kind = kind
+            row.error_detail = error_detail
+            row.failed_target = failed_target
             if dropped is not None:
                 row.dropped_by_target = dropped_to_json(dropped)
             row.finished_at = datetime.now(UTC)

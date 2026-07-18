@@ -12,7 +12,7 @@ export function ProcessingScreen({
   onViewResults,
   onStartOver,
 }: {
-  jobs: { jobId: string; name: string }[];
+  jobs: { jobId: string; name: string; nonce?: number }[];
   onJobTerminal: (jobId: string, result: JobStatusResponse) => void;
   complete: boolean;
   hasResults: boolean;
@@ -45,7 +45,14 @@ export function ProcessingScreen({
       </div>
       <div className="space-y-3">
         {jobs.map((j) => (
-          <JobProgress key={j.jobId} {...j} onTerminal={onJobTerminal} />
+          // Key includes the retry nonce so a retried job remounts and
+          // resumes polling from its reset (pending) state.
+          <JobProgress
+            key={`${j.jobId}:${j.nonce ?? 0}`}
+            jobId={j.jobId}
+            name={j.name}
+            onTerminal={onJobTerminal}
+          />
         ))}
       </div>
       {complete && (
