@@ -29,7 +29,12 @@ function jsonLd(source: LangCode, target: LangCode) {
       {
         "@type": "BreadcrumbList",
         itemListElement: [
-          { "@type": "ListItem", position: 1, name: "srt-flow", item: `${SITE_URL}/` },
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "srt-flow",
+            item: `${SITE_URL}/`,
+          },
           {
             "@type": "ListItem",
             position: 2,
@@ -63,7 +68,9 @@ export function TranslatePage({
     <div className="min-h-screen bg-surface text-ink">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(source, target)) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(jsonLd(source, target)),
+        }}
       />
       <header className="border-b border-border/70 bg-surface/90">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-4">
