@@ -172,7 +172,7 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     register_admin(app)
 
     @app.middleware("http")
-    async def _noindex_admin(
+    async def _noindex_admin(  # pyright: ignore[reportUnusedFunction]  # registered via decorator
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
