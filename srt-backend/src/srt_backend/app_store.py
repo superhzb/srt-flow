@@ -39,7 +39,6 @@ class AppStore(UserStore, BillingStore):
 
     def __init__(self, database_url: str | None = None) -> None:
         self._database_url = database_url
-        self._usage_this_period: dict[str, int] = {}
 
     async def get_by_sub(self, google_sub: str) -> User | None:
         with session_scope(self._database_url) as session:
@@ -169,33 +168,6 @@ class AppStore(UserStore, BillingStore):
                     dedup_key=event_id,
                     props={"pack": pack, "ledger_entry_id": ledger_entry_id},
                 )
-        except IntegrityError:
-            return False
-        return True
-
-    async def apply_paid_webhook_once(
-        self,
-        event_id: str,
-        session_id: str,
-        user_id: UserId,
-        paid_at: str,
-    ) -> bool:
-        """Deprecated binary-tier helper retained for API compatibility."""
-        try:
-            with session_scope(self._database_url) as session:
-                user = session.get(User, str(user_id))
-                if user is None:
-                    return False
-                session.add(
-                    ProcessedEvent(
-                        event_id=event_id,
-                        session_id=session_id,
-                        user_id=str(user_id),
-                        paid_at=paid_at,
-                    )
-                )
-                user.tier = "paid"
-                session.add(user)
         except IntegrityError:
             return False
         return True
@@ -455,9 +427,3 @@ class AppStore(UserStore, BillingStore):
             props={"pack": pack},
         )
 
-    async def has_processed_event(self, event_id: str) -> bool:
-        with session_scope(self._database_url) as session:
-            return session.get(ProcessedEvent, event_id) is not None
-
-    async def usage_count_this_period(self, user_id: UserId) -> int:
-        return self._usage_this_period.get(str(user_id), 0)

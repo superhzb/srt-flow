@@ -111,3 +111,24 @@ export function FlowLogo({ compact = false }: { compact?: boolean }) {
     </div>
   );
 }
+
+export function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`whitespace-nowrap rounded-full px-3 py-2 text-sm transition sm:px-4 ${active ? "bg-[#14181F] font-semibold text-white" : "text-ink-muted hover:bg-surface-subtle hover:text-ink"}`}
+    >
+      {children}
+    </button>
+  );
+}

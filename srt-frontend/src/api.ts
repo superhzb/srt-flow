@@ -16,11 +16,6 @@ export interface Cue {
   text: string;
 }
 
-export interface ParseResponse {
-  cues: Cue[];
-  count: number;
-}
-
 export interface PrepareResponse {
   cues: Cue[];
   count: number;
@@ -265,15 +260,6 @@ export async function getBillingConfirm(
 
 export function googleLoginUrl(): string {
   return "/api/auth/google/login";
-}
-
-export async function paidCheck(): Promise<number> {
-  const resp = await fetch("/api/auth/paid-check");
-  if (resp.status === 200 || resp.status === 401 || resp.status === 402) {
-    return resp.status;
-  }
-  if (!resp.ok) throw new Error(`request failed (${resp.status})`);
-  return resp.status;
 }
 
 // Fetch the actual .srt bytes for a target. Used when the user wants to

@@ -66,7 +66,6 @@ __all__ = [
     "fetch_languages",
     "probe_workers",
     "worker_backend_config",
-    "worker_base_url",
     "workers_env",
     # router
     "router",
@@ -137,6 +136,5 @@ from .workers import (
     fetch_languages,
     probe_workers,
     worker_backend_config,
-    worker_base_url,
     workers_env,
 )

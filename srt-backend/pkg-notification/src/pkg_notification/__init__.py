@@ -1,1 +1,0 @@
-"""pkg_notification package."""

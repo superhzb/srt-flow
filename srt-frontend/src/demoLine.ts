@@ -1,8 +1,7 @@
 /**
  * The tagline shown over the landing-page compare demo, translated into every
  * language srt·flow supports (see pkg-translator/languages.yaml). The right-hand
- * demo card pairs the English line with whichever of these the visitor's browser
- * points at — see detectTargetLang() in lib.ts.
+ * demo card pairs the English line with whichever of these the visitor picks.
  */
 
 /** Supported target languages, in the same order as the backend catalogue. */

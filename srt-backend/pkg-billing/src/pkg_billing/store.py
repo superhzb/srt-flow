@@ -70,16 +70,6 @@ class BillingStore(Protocol):
         """Record a paid session and credit its minutes exactly once."""
         ...
 
-    async def apply_paid_webhook_once(
-        self,
-        event_id: str,
-        session_id: str,
-        user_id: UserId,
-        paid_at: str,
-    ) -> bool:
-        """Deprecated compatibility seam for pre-credit-model callers."""
-        ...
-
     async def apply_refund_once(
         self,
         *,
@@ -119,12 +109,6 @@ class BillingStore(Protocol):
     async def balance(self, user_id: UserId, free_limit: int) -> dict[str, int]: ...
 
     async def record_checkout_started(self, user_id: UserId, pack: str) -> None: ...
-
-    async def has_processed_event(self, event_id: str) -> bool:
-        """Read-only idempotency check (not the write path)."""
-        ...
-
-    async def usage_count_this_period(self, user_id: UserId) -> int: ...
 
 
 _billing_store: BillingStore | None = None

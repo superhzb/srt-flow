@@ -9,12 +9,11 @@ from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pkg_auth.api import User
 from pkg_billing.api import (
     BillingConfig,
-    check_quota,
     create_checkout_session,
     get_config,
     reset_settings_cache,
@@ -37,12 +36,9 @@ class _FakeBillingStore:
     def __init__(
         self,
         users: list[User] | None = None,
-        usage: dict[str | int, int] | None = None,
     ) -> None:
         self._users_by_id: dict[str, User] = {str(u.id): u for u in users or []}
-        self._processed_events: set[str] = set()
         self._processed_sessions: set[str] = set()
-        self._usage = dict(usage or {})
         self.purchase_records: list[dict[str, str | int | None]] = []
         self.checkout_records: list[dict[str, str | int]] = []
         self.receipt_records: dict[str, str] = {}
@@ -69,7 +65,6 @@ class _FakeBillingStore:
     ) -> bool:
         if session_id in self._processed_sessions:
             return False
-        self._processed_events.add(event_id)
         self._processed_sessions.add(session_id)
         self.purchase_records.append(
             {
@@ -86,16 +81,6 @@ class _FakeBillingStore:
             }
         )
         return True
-
-    async def apply_paid_webhook_once(
-        self,
-        event_id: str,
-        session_id: str,
-        user_id: str | int,
-        paid_at: str,
-    ) -> bool:
-        del event_id, session_id, user_id, paid_at
-        raise AssertionError("legacy paid-tier fulfillment must not be used")
 
     async def apply_refund_once(
         self,
@@ -172,12 +157,6 @@ class _FakeBillingStore:
 
     async def record_checkout_started(self, user_id: str | int, pack: str) -> None:
         self.checkout_records.append({"user_id": user_id, "pack": pack})
-
-    async def has_processed_event(self, event_id: str) -> bool:
-        return event_id in self._processed_events
-
-    async def usage_count_this_period(self, user_id: str | int) -> int:
-        return self._usage.get(user_id, self._usage.get(str(user_id), 0))
 
 
 @pytest.fixture(autouse=True)
@@ -318,24 +297,6 @@ def test_create_checkout_session_sends_signed_reference(
             "cancel_url": "http://localhost:5730/?checkout=cancel",
         }
     ]
-
-
-def test_check_quota_raises_402_when_free_limit_reached() -> None:
-    import asyncio
-
-    user = User(id="1", google_sub="sub", email="user@example.com", tier="free")
-    store = _FakeBillingStore([user], usage={"1": 2})
-    config = BillingConfig(
-        env="dev",
-        ref_secret="ref-secret",
-        webhook_secret="whsec_test",
-        free_tier_monthly_limit=2,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(check_quota(user, store=store, config=config))
-
-    assert exc_info.value.status_code == 402
 
 
 def test_webhook_credits_signed_user_pack() -> None:

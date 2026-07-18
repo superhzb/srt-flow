@@ -161,8 +161,6 @@ export function QuotaBar({
   );
 }
 
-export const CreditUsageBar = QuotaBar;
-
 /**
  * Toggle-on .srt preview. Dedupes the fetch-on-toggle logic that lived in both
  * ResultsScreen (ResultPanel) and JobsScreen (PreviewButton): lazily fetches
