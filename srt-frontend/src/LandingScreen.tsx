@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import { googleLoginUrl, startCheckout, type CreditPack } from "./api.ts";
 import { LanguagePill } from "./components.tsx";
+import { langMeta } from "./languages.ts";
+import { LANG_SLUG } from "./routes.ts";
 import {
   DEMO_LINE,
   LANG_LABEL,
@@ -163,9 +165,20 @@ export function LandingScreen({
             Deutsch, Português, 日本語, and 한국어.
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
-            {SUPPORTED_LANGS.map((code) => (
-              <LanguagePill key={code} code={code} />
-            ))}
+            {SUPPORTED_LANGS.map((code) =>
+              code === "en" ? (
+                // English is the fixed source; it has no per-language page.
+                <LanguagePill key={code} code={code} />
+              ) : (
+                <a
+                  key={code}
+                  href={`/translate/${LANG_SLUG.en}-to-${LANG_SLUG[code]}/`}
+                  aria-label={`Translate English to ${langMeta(code).en}`}
+                >
+                  <LanguagePill code={code} />
+                </a>
+              ),
+            )}
           </div>
         </div>
       </section>

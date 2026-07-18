@@ -39,7 +39,7 @@ else
   clone=${SRT_FLOW_PRODUCTION_CLONE:-"$srt_flow_root/srt-flow-prod/srt-flow"}
   branch=main
   project=srt-flow
-  public_url=${SRT_FLOW_PRODUCTION_URL:-"https://www.srt-flow.com"}
+  public_url=${SRT_FLOW_PRODUCTION_URL:-"https://app.srt-flow.com"}
 fi
 
 [[ -n "$router_host" ]] || { echo "router dashboard host is not configured" >&2; exit 78; }

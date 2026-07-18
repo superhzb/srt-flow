@@ -29,6 +29,7 @@ import {
   takePendingTranslation,
 } from "./clientStorage.ts";
 import { track } from "./analytics.ts";
+import { HOME_META, setMeta } from "./seo.ts";
 
 type EnqueuedJob = { entry: FileEntry; jobId: string };
 type EnqueueFailure = { entry: FileEntry; message: string };
@@ -120,6 +121,12 @@ export default function App() {
   useEffect(() => {
     track("screen_viewed", { screen });
   }, [screen]);
+
+  // Keep the document head correct after client-side navigation. The home tags
+  // are also baked into index.html at build time for crawlers.
+  useEffect(() => {
+    if (showLanding) setMeta(HOME_META);
+  }, [showLanding]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;

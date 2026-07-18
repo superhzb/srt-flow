@@ -120,14 +120,22 @@ def test_anonymize_old_events(temp_env: dict[str, str]) -> None:
     run_migrations()
     with session_scope() as session:
         old = record_event(
-            session, "screen_viewed", source="client", user_id="u1", anon_id="a1",
+            session,
+            "screen_viewed",
+            source="client",
+            user_id="u1",
+            anon_id="a1",
             props={"screen": "landing"},
         )
         assert old is not None
         old.created_at = datetime.now(UTC) - timedelta(days=400)
         session.add(old)
         record_event(
-            session, "screen_viewed", source="client", user_id="u2", anon_id="a2",
+            session,
+            "screen_viewed",
+            source="client",
+            user_id="u2",
+            anon_id="a2",
             props={"screen": "jobs"},
         )
     with session_scope() as session:

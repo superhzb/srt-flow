@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -39,6 +39,7 @@ from pkg_job_orch.api import (
 )
 from sqlmodel import Session
 from starlette.exceptions import HTTPException
+from starlette.requests import Request
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
@@ -169,6 +170,18 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     app.include_router(jobs_router, prefix="/api")
     app.include_router(events_router, prefix="/api")
     register_admin(app)
+
+    @app.middleware("http")
+    async def _noindex_admin(  # pyright: ignore[reportUnusedFunction]  # registered via decorator
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        # Admin is auth-gated, but mark it noindex too so it never surfaces in
+        # search results even if a URL leaks. robots.txt also disallows /admin.
+        response = await call_next(request)
+        if request.url.path.startswith("/admin"):
+            response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
 
     frontend_dist = frontend_dist or (Path(__file__).resolve().parents[3] / "srt-frontend" / "dist")
     if frontend_dist.is_dir():
