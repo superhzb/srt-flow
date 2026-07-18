@@ -3,13 +3,56 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#14181F" />
     <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- seo:start — home defaults; scripts/prerender.mjs replaces this block per route -->
+    <title>SRT Subtitle Translator — 9 Languages, Broadcast-Ready | srt-flow</title>
+    <meta
+      name="description"
+      content="Translate .srt subtitle files into 9 languages in minutes. Auto-detected source, broadcast-ready bilingual output, free tier — no card required."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://www.srt-flow.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.srt-flow.com/" />
+    <meta
+      property="og:title"
+      content="SRT Subtitle Translator — 9 Languages, Broadcast-Ready | srt-flow"
+    />
+    <meta
+      property="og:description"
+      content="Translate .srt subtitle files into 9 languages in minutes. Auto-detected source, broadcast-ready bilingual output, free tier — no card required."
+    />
+    <meta property="og:image" content="https://www.srt-flow.com/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="SRT Subtitle Translator — 9 Languages, Broadcast-Ready | srt-flow"
+    />
+    <meta
+      name="twitter:description"
+      content="Translate .srt subtitle files into 9 languages in minutes. Auto-detected source, broadcast-ready bilingual output, free tier — no card required."
+    />
+    <meta name="twitter:image" content="https://www.srt-flow.com/og.png" />
+    <!-- seo:end -->
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Non-render-blocking: load async, apply on load. Improves LCP. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      />
+    </noscript>
     <script>
       try {
         const savedTheme = localStorage.getItem("theme");
@@ -24,7 +67,6 @@
         // Storage can be unavailable in privacy-restricted contexts.
       }
     </script>
-    <title>srt-flow</title>
   </head>
   <body>
     <div id="root"></div>

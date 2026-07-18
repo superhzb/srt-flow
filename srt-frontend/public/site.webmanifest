@@ -1,0 +1,17 @@
+{
+  "name": "srt-flow — SRT Subtitle Translator",
+  "short_name": "srt-flow",
+  "description": "Translate .srt subtitle files into 9 languages in minutes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14181F",
+  "theme_color": "#14181F",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
