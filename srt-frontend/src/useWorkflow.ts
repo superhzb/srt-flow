@@ -8,17 +8,12 @@ import {
   startJob,
   type JobStatusResponse,
 } from "./api.ts";
-import { type FileEntry } from "./ConfigureScreen.tsx";
 import { savePendingTranslation } from "./clientStorage.ts";
+import { effectiveTargets, type FileEntry } from "./fileEntry.ts";
 
 export type EnqueuedJob = { entry: FileEntry; jobId: string };
 export type EnqueueFailure = { entry: FileEntry; message: string };
-export type Stage =
-  | "idle"
-  | "configure"
-  | "demo"
-  | "enqueuing"
-  | "enqueued";
+export type Stage = "idle" | "configure" | "demo" | "enqueuing" | "enqueued";
 export type Workflow = {
   stage: Stage;
   entries: FileEntry[];
@@ -159,21 +154,12 @@ export function useWorkflow() {
     if (workflow.stage !== "configure") return;
     const { worker, targets } = workflow;
     const snapshot = workflow.entries;
-    const carriedLanguage = (entry: FileEntry) => {
-      const langs = entry.prepare?.bilingual?.line_langs;
-      return langs && entry.sourceLine !== undefined
-        ? langs[1 - entry.sourceLine]
-        : undefined;
-    };
     const entries = snapshot.filter(
       (entry) =>
         entry.status === "ready" &&
         entry.prepare &&
         entry.sourceLang &&
-        targets.some(
-          (target) =>
-            target !== entry.sourceLang && target !== carriedLanguage(entry),
-        ),
+        effectiveTargets(entry, targets).length > 0,
     );
     setWorkflow((previous) => ({
       ...previous,
@@ -191,11 +177,7 @@ export function useWorkflow() {
             cues: entry.prepare!.cues,
             sourceLang: entry.sourceLang!,
             sourceLine: entry.sourceLine,
-            targets: targets.filter(
-              (target) =>
-                target !== entry.sourceLang &&
-                target !== carriedLanguage(entry),
-            ),
+            targets: effectiveTargets(entry, targets),
             worker,
             filename: entry.name,
           }),
