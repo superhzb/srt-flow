@@ -42,7 +42,6 @@ __all__ = [
     "BillingStore",
     "LedgerCursor",
     "UserId",
-    "check_quota",
     "create_checkout_session",
     "get_billing_store",
     "get_config",
@@ -119,24 +118,6 @@ async def create_checkout_session(
         if _is_stripe_error(exc):
             raise RuntimeError("Stripe checkout is temporarily unavailable") from exc
         raise
-
-
-async def check_quota(
-    user: User,
-    store: BillingStore | None = None,
-    config: BillingConfig | None = None,
-) -> None:
-    if user.tier == "paid":
-        return
-
-    resolved_config = config or get_config()
-    resolved_store = store or get_billing_store()
-    usage = await resolved_store.usage_count_this_period(user.id)
-    if usage >= resolved_config.free_tier_monthly_limit:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Free tier monthly limit reached",
-        )
 
 
 router = APIRouter(prefix="/billing", tags=["billing"])

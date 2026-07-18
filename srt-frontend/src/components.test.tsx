@@ -1,11 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CreditUsageBar } from "./components.tsx";
+import { QuotaBar } from "./components.tsx";
 
-describe("CreditUsageBar", () => {
+describe("QuotaBar", () => {
   it("shows the percentage of free credits remaining", () => {
-    render(<CreditUsageBar used={10} limit={40} />);
+    render(<QuotaBar used={10} limit={40} />);
 
     expect(screen.getByText("Free · 30/40 min")).toBeInTheDocument();
     expect(screen.getByText("75%")).toBeInTheDocument();

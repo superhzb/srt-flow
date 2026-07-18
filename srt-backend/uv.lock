@@ -9,7 +9,6 @@ members = [
     "pkg-file-upload",
     "pkg-job-orch",
     "pkg-llm-backend",
-    "pkg-notification",
     "pkg-srt-services",
     "pkg-translator",
     "srt-backend",
@@ -945,29 +944,6 @@ requires-dist = [
     { name = "openai", specifier = ">=1.40.0" },
     { name = "pkg-translator", editable = "pkg-translator" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "build", specifier = ">=1.2.0" },
-    { name = "pyright", specifier = ">=1.1.400" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "ruff", specifier = ">=0.11.0" },
-]
-
-[[package]]
-name = "pkg-notification"
-version = "0.1.0"
-source = { editable = "pkg-notification" }
-
-[package.dev-dependencies]
-dev = [
-    { name = "build" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
 
 [package.metadata.requires-dev]
 dev = [

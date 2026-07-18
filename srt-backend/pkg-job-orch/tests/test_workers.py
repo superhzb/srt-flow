@@ -14,7 +14,6 @@ from pkg_job_orch.workers import (
     fetch_languages,
     probe_workers,
     worker_backend_config,
-    worker_base_url,
     workers_env,
 )
 from pkg_llm_backend.api import Backend, LLMBackendConfig
@@ -46,13 +45,6 @@ def test_worker_backend_config_resolves_and_unknown_raises(
 
     with pytest.raises(WorkerResolutionError, match="unknown worker id"):
         worker_backend_config("cloud")
-
-
-def test_worker_base_url_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LLM_BACKENDS", "mlx")
-    monkeypatch.setenv("MLX_PLATFORM_BASE_URL", "http://127.0.0.1:5900/v1")
-
-    assert worker_base_url("mlx") == "http://127.0.0.1:5900/v1"
 
 
 def test_worker_label_falls_back_to_title_case() -> None:

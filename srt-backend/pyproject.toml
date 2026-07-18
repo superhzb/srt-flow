@@ -54,7 +54,6 @@ members = [
   "pkg-file-upload",
   "pkg-job-orch",
   "pkg-llm-backend",
-  "pkg-notification",
   "pkg-srt-services",
   "pkg-translator",
 ]

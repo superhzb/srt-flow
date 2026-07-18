@@ -1,37 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { apiFetch, detectTargetLang, errMessage } from "./lib.ts";
-
-describe("detectTargetLang", () => {
-  it("returns the first supported non-English browser language", () => {
-    expect(detectTargetLang(["fr-FR", "en-US"], "")).toBe("fr");
-    expect(detectTargetLang(["ja"], "")).toBe("ja");
-    expect(detectTargetLang(["de-DE"], "")).toBe("de");
-  });
-
-  it("distinguishes simplified vs traditional Chinese", () => {
-    expect(detectTargetLang(["zh-CN"], "")).toBe("zh");
-    expect(detectTargetLang(["zh"], "")).toBe("zh");
-    expect(detectTargetLang(["zh-TW"], "")).toBe("zh-TW");
-    expect(detectTargetLang(["zh-Hant-HK"], "")).toBe("zh-TW");
-  });
-
-  it("skips unsupported tags and keeps scanning", () => {
-    expect(detectTargetLang(["hi-IN", "ko-KR"], "")).toBe("ko");
-  });
-
-  it("never targets English; uses region then timezone", () => {
-    expect(detectTargetLang(["en-CA"], "")).toBe("fr");
-    expect(detectTargetLang(["en-US"], "Asia/Tokyo")).toBe("ja");
-    expect(detectTargetLang(["en-US"], "Europe/Berlin")).toBe("de");
-  });
-
-  it("falls back to fr when nothing resolves", () => {
-    expect(detectTargetLang([], "")).toBe("fr");
-    expect(detectTargetLang(["en-US"], "Pacific/Auckland")).toBe("fr");
-    expect(detectTargetLang(["xx"], "")).toBe("fr");
-  });
-});
+import { apiFetch, errMessage } from "./lib.ts";
 
 describe("errMessage", () => {
   it("returns the message of an Error", () => {

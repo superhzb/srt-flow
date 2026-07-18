@@ -27,7 +27,6 @@ __all__ = [
     "fetch_languages",
     "probe_workers",
     "worker_backend_config",
-    "worker_base_url",
     "workers_env",
 ]
 
@@ -84,11 +83,6 @@ def worker_backend_config(worker_id: str) -> LLMBackendConfig:
     if config is None:
         raise WorkerResolutionError(f"unknown worker id: {worker_id!r}")
     return config
-
-
-def worker_base_url(worker_id: str) -> str:
-    """Resolve ``worker_id`` -> its backend ``base_url`` or raise ``WorkerResolutionError``."""
-    return worker_backend_config(worker_id).base_url
 
 
 async def probe_workers(infos: list[WorkerInfo]) -> list[WorkerStatus]:
