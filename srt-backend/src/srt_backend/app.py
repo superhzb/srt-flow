@@ -46,6 +46,7 @@ from starlette.types import Scope
 
 from srt_backend.app_store import AppStore
 from srt_backend.detection import detect_bilingual
+from srt_backend.forwarded import ForwardedHostMiddleware
 from srt_backend.routes_events import router as events_router
 from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
@@ -160,6 +161,9 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     from srt_backend.admin import register_admin
 
     app = FastAPI(title="srt-flow", version="0.1.0", lifespan=lifespan)
+    # Behind the local router, restore the public host/scheme before any route
+    # builds absolute URLs (SQLAdmin's assets/nav links depend on it).
+    app.add_middleware(ForwardedHostMiddleware)
     app.dependency_overrides[require_job_user] = get_current_user
     app.state.free_tier_monthly_limit = int(os.environ.get("FREE_TIER_MONTHLY_LIMIT", "30"))
     app.include_router(auth_router, prefix="/api")
