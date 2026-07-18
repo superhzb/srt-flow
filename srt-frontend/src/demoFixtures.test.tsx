@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DecisionModal } from "./DecisionModal.tsx";
 import { DemoProcessing } from "./DemoProcessing.tsx";
-import { UploadFlow } from "./App.tsx";
+import { UploadFlow } from "./UploadFlow.tsx";
 import {
   billedCreditMinutes,
   formatDuration,

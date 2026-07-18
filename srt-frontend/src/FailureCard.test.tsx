@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { FailureCard } from "./App.tsx";
+import { FailureCard } from "./FailureCard.tsx";
 
 describe("FailureCard", () => {
   it("renders friendly copy, not-charged line, and retry for a retryable kind", () => {
