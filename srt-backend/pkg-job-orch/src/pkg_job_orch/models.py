@@ -23,6 +23,7 @@ __all__ = [
     "CreditLedgerEntry",
     "Event",
     "Job",
+    "JobErrorKind",
     "JobStatus",
     "ProcessedEvent",
     "User",
@@ -35,6 +36,20 @@ __all__ = [
 ]
 
 JobStatus = str  # Literal["pending", "processing", "done", "failed"] — free str for SQLModel
+
+# Single source of truth for the ``Job.error_kind`` column values. Kept a plain
+# ``str`` alias (SQLModel maps it to a TEXT column) — the docstring is the
+# contract. The frontend union in ``srt-frontend/src/api.ts`` (JobErrorKind)
+# must stay in sync with this list.
+#
+# Valid kinds:
+#   "worker_stream"       — catch-all backend/generation failure (default).
+#   "unsupported_language"— a requested source/target has no catalog entry.
+#   "worker_config"       — unknown worker id or misconfigured backend.
+#   "backend_unavailable" — network/timeout/rate-limit talking to the backend.
+#   "internal"            — unexpected crash in the orchestrator.
+#   "landing"             — result-persistence failure after translation.
+JobErrorKind = str
 
 
 def _utcnow() -> datetime:
@@ -180,7 +195,14 @@ class Job(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
     finished_at: datetime | None = Field(default=None)
-    error_kind: str | None = Field(default=None)
+    error_kind: JobErrorKind | None = Field(default=None)
+    # Exception class + repr captured at the raise site — the debug context
+    # previously flattened away by ``str(exc)``. See 0010 migration.
+    error_detail: str | None = Field(default=None)
+    # Target language in flight when a hard failure occurred. Distinct from
+    # ``dropped_by_target`` (per-target soft-drops on an otherwise-successful
+    # job); never overload the two.
+    failed_target: str | None = Field(default=None)
     dropped_by_target: str | None = Field(default=None)
     attempts: int = Field(default=0)
 

@@ -14,8 +14,10 @@ from .prompts import (
 from .translator import (
     BatchProgress,
     LLMBackend,
+    NoBackendError,
     ProgressCallback,
     Translator,
+    UnsupportedLanguageError,
     translate_segments,
 )
 from .validation import (
@@ -29,6 +31,7 @@ __all__ = [
     "BatchProgress",
     "LLMBackend",
     "LangConfig",
+    "NoBackendError",
     "PairConfig",
     "ProgressCallback",
     "SourceItem",
@@ -37,6 +40,7 @@ __all__ = [
     "TranslationRequest",
     "TranslationResponse",
     "Translator",
+    "UnsupportedLanguageError",
     "ValidationError",
     "available_languages",
     "create_app",

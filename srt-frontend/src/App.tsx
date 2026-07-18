@@ -7,11 +7,14 @@ import {
   googleLoginUrl,
   logout,
   prepareSrt,
+  retryJob,
   startJob,
   type BillingBalance,
+  type JobErrorKind,
   type JobStatusResponse,
   type Me,
 } from "./api.ts";
+import { errorCopy } from "./errorCopy.ts";
 import { BillingScreen } from "./BillingScreen.tsx";
 import { ConfigureScreen, type FileEntry } from "./ConfigureScreen.tsx";
 import { ErrorBanner } from "./components.tsx";
@@ -42,6 +45,8 @@ type Workflow = {
   jobs: EnqueuedJob[];
   enqueueFailures: EnqueueFailure[];
   terminalJobs: Record<string, JobStatusResponse>;
+  // Bumped per job on retry to remount its poller and resume polling.
+  retryNonce: Record<string, number>;
 };
 type Tab = "translate" | "jobs" | "billing";
 type Theme = "light" | "dark";
@@ -71,6 +76,7 @@ const EMPTY_WORKFLOW: Workflow = {
   jobs: [],
   enqueueFailures: [],
   terminalJobs: {},
+  retryNonce: {},
 };
 export const MAX_BATCH = 20;
 
@@ -556,6 +562,25 @@ export default function App() {
     [],
   );
 
+  const handleRetryJob = useCallback(async (jobId: string) => {
+    // Server resets the row to pending and re-queues it (input.srt retained).
+    await retryJob(jobId);
+    // Drop the terminal snapshot and bump the nonce so the poller remounts
+    // and transitions failed → processing without a re-upload.
+    setWorkflow((previous) => {
+      const nextTerminal = { ...previous.terminalJobs };
+      delete nextTerminal[jobId];
+      return {
+        ...previous,
+        terminalJobs: nextTerminal,
+        retryNonce: {
+          ...previous.retryNonce,
+          [jobId]: (previous.retryNonce[jobId] ?? 0) + 1,
+        },
+      };
+    });
+  }, []);
+
   const restart = useCallback(() => {
     setWorkflow(EMPTY_WORKFLOW);
     setTab("translate");
@@ -766,6 +791,7 @@ export default function App() {
                         jobs={workflow.jobs.map((job) => ({
                           jobId: job.jobId,
                           name: job.entry.name,
+                          nonce: workflow.retryNonce[job.jobId] ?? 0,
                         }))}
                         onJobTerminal={handleJobTerminal}
                         complete={processingComplete}
@@ -778,8 +804,8 @@ export default function App() {
                       <FailureCard
                         key={failure.entry.id}
                         name={failure.entry.name}
-                        detail={failure.message}
-                        label="Queue failed"
+                        title="Couldn't queue this file"
+                        description={failure.message}
                       />
                     ))}
                     {failedJobs.map((job) => {
@@ -788,11 +814,12 @@ export default function App() {
                         <FailureCard
                           key={job.jobId}
                           name={job.entry.name}
-                          label={result.error_kind ?? "Translation failed"}
-                          detail={
-                            result.error ??
-                            "The worker could not complete this job."
-                          }
+                          errorKind={result.error_kind}
+                          error={result.error}
+                          errorDetail={result.error_detail}
+                          failedTarget={result.failed_target}
+                          showNotCharged
+                          onRetry={() => handleRetryJob(job.jobId)}
                         />
                       );
                     })}
@@ -894,23 +921,98 @@ export default function App() {
   );
 }
 
-function FailureCard({
+export function FailureCard({
   name,
-  label,
-  detail,
+  title,
+  description,
+  errorKind,
+  error,
+  errorDetail,
+  failedTarget,
+  showNotCharged = false,
+  onRetry,
 }: {
   name: string;
-  label: string;
-  detail: string;
+  // Provide title/description directly (e.g. queue failures), or an
+  // errorKind to look up friendly copy for a job failure.
+  title?: string;
+  description?: string;
+  errorKind?: JobErrorKind | null;
+  error?: string;
+  errorDetail?: string;
+  failedTarget?: string;
+  showNotCharged?: boolean;
+  onRetry?: () => void | Promise<void>;
 }) {
+  const copy = errorCopy(errorKind);
+  const shownTitle = title ?? copy.title;
+  const shownDescription = description ?? copy.description;
+  const canRetry = onRetry != null && copy.retryable;
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const hasTechnical = Boolean(errorKind || error || errorDetail);
+
+  async function handleRetry() {
+    if (!onRetry) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await onRetry();
+    } catch (e) {
+      setRetrying(false);
+      setRetryError(errMessage(e, "retry failed"));
+    }
+    // On success the card unmounts (job leaves the failed set) — no reset.
+  }
+
   return (
     <div
       role="alert"
       className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-900"
     >
-      <p className="font-semibold">{name}</p>
-      <p className="mt-1 font-mono text-xs uppercase">{label}</p>
-      <p className="mt-2 text-sm">{detail}</p>
+      <p className="text-xs font-medium text-red-700">{name}</p>
+      <p className="mt-1 font-semibold">{shownTitle}</p>
+      <p className="mt-1 text-sm">{shownDescription}</p>
+      {showNotCharged && (
+        <p className="mt-2 text-sm font-medium">
+          You weren't charged for this job.
+        </p>
+      )}
+      {canRetry && (
+        <div className="mt-3">
+          <Button onClick={() => void handleRetry()} disabled={retrying}>
+            {retrying ? "Retrying…" : "Retry translation"}
+          </Button>
+        </div>
+      )}
+      {retryError && <p className="mt-2 text-sm">{retryError}</p>}
+      {hasTechnical && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer text-red-700">
+            Technical details
+          </summary>
+          <dl className="mt-2 space-y-1 font-mono break-words">
+            {errorKind && (
+              <div>
+                <dt className="inline text-red-700">kind: </dt>
+                <dd className="inline">{errorKind}</dd>
+              </div>
+            )}
+            {failedTarget && (
+              <div>
+                <dt className="inline text-red-700">target: </dt>
+                <dd className="inline">{failedTarget}</dd>
+              </div>
+            )}
+            {(errorDetail ?? error) && (
+              <div>
+                <dt className="inline text-red-700">detail: </dt>
+                <dd className="inline">{errorDetail ?? error}</dd>
+              </div>
+            )}
+          </dl>
+        </details>
+      )}
     </div>
   );
 }

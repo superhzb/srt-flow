@@ -195,6 +195,10 @@ async def get_job(
         out["eta_seconds"] = _eta_seconds(job, progress)
         if job.error is not None:
             out["error"] = job.error
+        if job.error_detail is not None:
+            out["error_detail"] = job.error_detail
+        if job.failed_target is not None:
+            out["failed_target"] = job.failed_target
         if job.dropped_by_target is not None:
             out["dropped_by_target"] = dropped_from_json(job.dropped_by_target)
         if job.status == "done":
@@ -214,6 +218,50 @@ async def get_job(
                 "download_url": f"/api/jobs/{job.id}/download?{query}",
             }
         return out
+
+
+@router.post("/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+async def retry_job(
+    request: Request,
+    job_id: str,
+    user: Annotated[User, Depends(require_job_user)],
+) -> dict[str, str]:
+    """Re-queue a failed job without re-uploading — ``input.srt`` is retained.
+
+    Resets the row to ``pending`` and clears the failure fields, then puts the
+    id back on the worker queue. ``attempts`` increments naturally on the next
+    claim. Unlimited retries; billing still happens only on eventual success.
+    """
+    ctx = request.app.state.job_ctx
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
+        if job.status != "failed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"job is {job.status}, not failed",
+            )
+        job.status = "pending"
+        job.error = None
+        job.error_kind = None
+        job.error_detail = None
+        job.failed_target = None
+        job.finished_at = None
+        job.progress = 0.0
+        job.progress_by_target = None
+        session.add(job)
+        record_event(
+            session,
+            "job_retried",
+            user_id=job.user_id,
+            # attempts is the count of prior claims — unique per retry.
+            dedup_key=f"{job_id}:retried:{job.attempts}",
+            props={"job_id": job_id, "attempt": job.attempts},
+        )
+        session.commit()
+    ctx.queue.put_nowait(job_id)
+    return {"job_id": job_id}
 
 
 def _target_progress(
