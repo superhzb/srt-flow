@@ -426,4 +426,3 @@ class AppStore(UserStore, BillingStore):
             user_id=str(user_id),
             props={"pack": pack},
         )
-
