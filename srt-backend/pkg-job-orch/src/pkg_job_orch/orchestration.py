@@ -242,9 +242,7 @@ async def default_worker_client(
     try:
         config = worker_backend_config(worker_id)
     except WorkerResolutionError as exc:
-        raise WorkerStreamError(
-            str(exc), kind="worker_config", detail=_error_detail(exc)
-        ) from exc
+        raise WorkerStreamError(str(exc), kind="worker_config", detail=_error_detail(exc)) from exc
 
     progress_by_target: dict[str, dict[str, int]] = {}
     seen_targets: set[str] = set()

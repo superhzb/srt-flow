@@ -25,9 +25,7 @@ _TRUSTED_CLIENTS = frozenset({"127.0.0.1", "::1"})
 class ForwardedHostMiddleware:
     """Honor ``X-Forwarded-Host``/``X-Forwarded-Proto`` from a trusted proxy."""
 
-    def __init__(
-        self, app: ASGIApp, trusted_clients: frozenset[str] = _TRUSTED_CLIENTS
-    ) -> None:
+    def __init__(self, app: ASGIApp, trusted_clients: frozenset[str] = _TRUSTED_CLIENTS) -> None:
         self.app = app
         self.trusted_clients = trusted_clients
 
