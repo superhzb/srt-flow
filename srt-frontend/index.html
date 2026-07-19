@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#14181F" />
+
+    <!-- Google Consent Mode v2 defaults. Set before any tag loads. The gtag.js
+         script itself is loaded from src/consent.ts only after the user accepts
+         the consent banner. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      window.gtag = gtag;
+      gtag("consent", "default", {
+        ad_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied",
+        analytics_storage: "denied",
+        wait_for_update: 500,
+      });
+    </script>
     <link rel="icon" type="image/png" href="/icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
