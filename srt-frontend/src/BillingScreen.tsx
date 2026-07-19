@@ -21,6 +21,7 @@ import {
   RefreshButton,
   TierBadge,
 } from "./components.tsx";
+import { trackPurchase } from "./consent.ts";
 import { usePoll } from "./hooks.ts";
 import { formatCurrency, formatLedgerDate } from "./lib.ts";
 import { Card } from "./ui.tsx";
@@ -196,6 +197,7 @@ export function BillingScreen({
     if (!shouldConfirm) return;
     if (confirmPoll.result?.applied && !refreshedAfterConfirmation.current) {
       refreshedAfterConfirmation.current = true;
+      trackPurchase();
       setConfirmation(null);
       refresh(category);
       return;

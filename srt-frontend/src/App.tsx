@@ -9,6 +9,7 @@ import {
   type Me,
 } from "./api.ts";
 import { BillingScreen } from "./BillingScreen.tsx";
+import { trackSignup } from "./consent.ts";
 import { ConfigureScreen } from "./ConfigureScreen.tsx";
 import { FailureCard } from "./FailureCard.tsx";
 import { JobsScreen } from "./JobsScreen.tsx";
@@ -139,6 +140,7 @@ export default function App() {
       .then((me) => {
         if (!live) return;
         setSession(me);
+        if (me) trackSignup(me);
         if (me && window.location.pathname === "/") {
           window.history.replaceState({}, "", TAB_PATHS.translate);
           setShowLanding(false);

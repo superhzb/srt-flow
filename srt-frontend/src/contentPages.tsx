@@ -121,7 +121,10 @@ function PrivacyPage() {
       </ul>
       <P>
         We do <strong>not</strong> collect passwords (sign-in is Google OAuth
-        only) and use <strong>no</strong> third-party advertising or analytics
+        only). With your consent, we use <strong>Google Ads</strong> conversion
+        tracking to measure the effectiveness of our advertising. These cookies
+        load only after you accept them in the consent banner and are never set
+        if you decline. We use no other third-party advertising or analytics
         trackers.
       </P>
 
