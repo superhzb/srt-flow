@@ -25,6 +25,8 @@ from pkg_auth.api import get_current_user, set_user_store
 from pkg_billing.api import set_billing_store
 from pkg_file_upload.api import LocalStorage
 from pkg_job_orch.api import (
+    DEFAULT_JOB_RETENTION_DAYS,
+    DEFAULT_RETENTION_INTERVAL_SECONDS,
     DEV_USER_ID,
     JobContext,
     NullNotifier,
@@ -33,6 +35,7 @@ from pkg_job_orch.api import (
     recover_jobs,
     require_job_user,
     reset_engine,
+    retention_loop,
     run_migrations,
     seed_dev_user,
     worker_loop,
@@ -47,6 +50,7 @@ from starlette.types import Scope
 from srt_backend.app_store import AppStore
 from srt_backend.detection import detect_bilingual
 from srt_backend.forwarded import ForwardedHostMiddleware
+from srt_backend.routes_account import router as account_router
 from srt_backend.routes_events import router as events_router
 from srt_backend.routes_health import router as health_router
 from srt_backend.routes_srt import router as srt_router
@@ -134,15 +138,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     worker_task = asyncio.create_task(worker_loop(ctx, app.state.worker_stop))
     app.state.worker_task = worker_task
 
+    # Data-retention purge runs on the same shutdown signal as the worker.
+    retention_task = asyncio.create_task(
+        retention_loop(
+            ctx.storage,
+            app.state.worker_stop,
+            interval_seconds=int(
+                os.environ.get("RETENTION_INTERVAL_SECONDS", DEFAULT_RETENTION_INTERVAL_SECONDS)
+            ),
+            job_retention_days=int(
+                os.environ.get("JOB_RETENTION_DAYS", DEFAULT_JOB_RETENTION_DAYS)
+            ),
+            database_url=database_url,
+        )
+    )
+    app.state.retention_task = retention_task
+
     try:
         yield
     finally:
         app.state.worker_stop.set()
-        try:
-            await asyncio.wait_for(worker_task, timeout=5.0)
-        except TimeoutError:
-            logger.warning("worker_loop did not shut down within 5s; cancelling")
-            worker_task.cancel()
+        for name, task in (("worker_loop", worker_task), ("retention_loop", retention_task)):
+            try:
+                await asyncio.wait_for(task, timeout=5.0)
+            except TimeoutError:
+                logger.warning("%s did not shut down within 5s; cancelling", name)
+                task.cancel()
         # Drop the engine cache so a next run/test starts fresh.
         reset_engine()
         # Also clear the cached ctx so the next lifespan rebuilds it
@@ -173,6 +194,7 @@ def _create_app(frontend_dist: Path | None = None) -> FastAPI:
     app.include_router(workers_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
     app.include_router(events_router, prefix="/api")
+    app.include_router(account_router, prefix="/api")
     register_admin(app)
 
     @app.middleware("http")

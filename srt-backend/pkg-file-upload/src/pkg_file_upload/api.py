@@ -71,6 +71,14 @@ class Storage(Protocol):
         """
         ...
 
+    def delete_job(self, user_id: str, job_id: str) -> None:
+        """Remove an entire job directory and its artifacts. Missing dir is a no-op."""
+        ...
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove a user's entire storage tree (all jobs). Missing dir is a no-op."""
+        ...
+
 
 class LocalStorage:
     """``Storage`` backed by the local filesystem under ``root``.
@@ -135,4 +143,11 @@ class LocalStorage:
         if not user_id or not job_id or "/" in user_id or "/" in job_id:
             raise StorageError("user_id and job_id are required, no '/'")
         path = self._root / user_id / job_id
+        shutil.rmtree(path, ignore_errors=True)
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove a user's entire storage tree (all their jobs). Missing dir is a no-op."""
+        if not user_id or "/" in user_id:
+            raise StorageError("user_id is required, no '/'")
+        path = self._root / user_id
         shutil.rmtree(path, ignore_errors=True)

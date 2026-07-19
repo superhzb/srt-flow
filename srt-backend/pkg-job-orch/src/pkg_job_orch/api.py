@@ -40,6 +40,14 @@ __all__ = [
     "anonymize_old_events",
     "record_event",
     "validate_props",
+    # retention + erasure
+    "DEFAULT_JOB_RETENTION_DAYS",
+    "DEFAULT_RETENTION_INTERVAL_SECONDS",
+    "ErasureResult",
+    "erase_user",
+    "purge_old_jobs",
+    "retention_loop",
+    "run_retention_pass",
     # orchestration
     "DEV_USER_ID",
     "DEFAULT_DEV_USER_EMAIL",
@@ -88,6 +96,7 @@ from .db import (
     run_migrations,
     session_scope,
 )
+from .erasure import ErasureResult, erase_user
 from .events import (
     CLIENT_ALLOWED_EVENTS,
     DEFAULT_RETENTION_DAYS,
@@ -127,6 +136,13 @@ from .orchestration import (
     recover_jobs,
     seed_dev_user,
     worker_loop,
+)
+from .retention import (
+    DEFAULT_JOB_RETENTION_DAYS,
+    DEFAULT_RETENTION_INTERVAL_SECONDS,
+    purge_old_jobs,
+    retention_loop,
+    run_retention_pass,
 )
 from .routes import require_job_user, router
 from .workers import (

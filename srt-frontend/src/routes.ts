@@ -41,5 +41,20 @@ export function matchLangRoute(pathname: string): LangRoute | undefined {
   return LANG_ROUTES.find((r) => r.path === normalized);
 }
 
+// Static content pages (legal + contact + about). Paths must stay in sync with
+// the route table in contentPages.tsx. Kept here (not imported from there) so
+// routes.ts has no dependency on contentPages — that module imports seo.ts which
+// imports this file, and closing the loop would create a circular import.
+export const CONTENT_ROUTES: string[] = [
+  "/privacy/",
+  "/terms/",
+  "/contact/",
+  "/about/",
+];
+
 /** Every public URL, for sitemap generation and prerendering. */
-export const PUBLIC_ROUTES: string[] = ["/", ...LANG_ROUTES.map((r) => r.path)];
+export const PUBLIC_ROUTES: string[] = [
+  "/",
+  ...LANG_ROUTES.map((r) => r.path),
+  ...CONTENT_ROUTES,
+];

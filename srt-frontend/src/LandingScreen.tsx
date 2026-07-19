@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { googleLoginUrl, startCheckout, type CreditPack } from "./api.ts";
 import { LanguagePill } from "./components.tsx";
+import { LegalLinks } from "./LegalLinks.tsx";
 import { langMeta } from "./languages.ts";
 import { LANG_SLUG } from "./routes.ts";
 import {
@@ -267,17 +268,20 @@ export function LandingScreen({
         </div>
       </section>
       <footer className="bg-[#14181F] px-5 py-20 text-white">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 sm:flex-row sm:items-center">
-          <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
-            Learn a language from the videos you already love.
-          </h2>
-          <button
-            type="button"
-            onClick={primaryAction}
-            className="whitespace-nowrap text-lg font-semibold text-cyan-400 underline-offset-4 transition hover:text-cyan-300 hover:underline active:scale-95"
-          >
-            {signedIn ? "Open workspace →" : "Start free →"}
-          </button>
+        <div className="mx-auto flex max-w-6xl flex-col gap-10">
+          <div className="flex flex-col items-start justify-between gap-8 sm:flex-row sm:items-center">
+            <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
+              Learn a language from the videos you already love.
+            </h2>
+            <button
+              type="button"
+              onClick={primaryAction}
+              className="whitespace-nowrap text-lg font-semibold text-cyan-400 underline-offset-4 transition hover:text-cyan-300 hover:underline active:scale-95"
+            >
+              {signedIn ? "Open workspace →" : "Start free →"}
+            </button>
+          </div>
+          <LegalLinks className="border-t border-white/10 pt-8" />
         </div>
       </footer>
     </div>
