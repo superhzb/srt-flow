@@ -70,6 +70,9 @@ const packs: Array<{
   },
 ];
 
+// USD pack prices, for Google Ads purchase-conversion revenue attribution.
+const PACK_USD: Record<CreditPack, number> = { small: 3.99, large: 29.99 };
+
 const historyFilters: Array<{ value: BillingCategory; label: string }> = [
   { value: "purchases", label: "Purchases" },
   { value: "all", label: "All" },
@@ -126,6 +129,13 @@ export function BillingScreen({
     track("cta_clicked", { cta: `buy_${pack}` });
     try {
       const { url } = await startCheckout(pack);
+      // Stash the purchase value (USD) so the post-Stripe confirm page can
+      // attribute revenue to the Google Ads conversion.
+      try {
+        localStorage.setItem("pending_purchase_usd", String(PACK_USD[pack]));
+      } catch {
+        /* storage unavailable */
+      }
       window.location.href = url;
     } catch (error) {
       setCheckoutError(errMessage(error, "failed to start checkout"));
@@ -197,7 +207,15 @@ export function BillingScreen({
     if (!shouldConfirm) return;
     if (confirmPoll.result?.applied && !refreshedAfterConfirmation.current) {
       refreshedAfterConfirmation.current = true;
-      trackPurchase();
+      let value: number | undefined;
+      try {
+        const raw = localStorage.getItem("pending_purchase_usd");
+        if (raw) value = Number(raw);
+        localStorage.removeItem("pending_purchase_usd");
+      } catch {
+        /* storage unavailable */
+      }
+      trackPurchase(Number.isFinite(value) ? value : undefined);
       setConfirmation(null);
       refresh(category);
       return;
