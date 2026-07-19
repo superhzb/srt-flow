@@ -14,9 +14,8 @@
 
 const AW_TAG_ID = "AW-18335528009";
 
-// Fill this in after creating the Purchase conversion action in Google Ads.
-// It looks like "AW-18335528009/AbC-dEfG12345". Leave empty to disable.
-const PURCHASE_SEND_TO = "";
+// Purchase conversion action (Google Ads event snippet send_to). Empty disables.
+const PURCHASE_SEND_TO = "AW-18335528009/ruOhCLyYg9McEMnoh6dE";
 
 export const CONSENT_KEY = "ads_consent"; // "granted" | "denied"
 const SIGNUP_FIRED_KEY = "ads_signup_fired"; // JSON array of user ids
@@ -136,13 +135,13 @@ export function trackSignup(me: { id: string; created_at: string }): void {
 }
 
 // Fire the purchase conversion. Requires PURCHASE_SEND_TO to be set.
-// valueCad is optional — the confirm endpoint doesn't return the pack value,
-// so it is normally fired without a value.
-export function trackPurchase(valueCad?: number): void {
+// value/currency are optional — pass them for ROAS attribution when the
+// purchased amount is known.
+export function trackPurchase(value?: number, currency = "USD"): void {
   if (getStoredConsent() !== "granted" || !PURCHASE_SEND_TO) return;
   loadGtag();
   gtag("event", "conversion", {
     send_to: PURCHASE_SEND_TO,
-    ...(valueCad !== undefined ? { value: valueCad, currency: "CAD" } : {}),
+    ...(value !== undefined ? { value, currency } : {}),
   });
 }
