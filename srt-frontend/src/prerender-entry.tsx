@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { LandingScreen } from "./LandingScreen.tsx";
 import { TranslatePage } from "./TranslatePage.tsx";
+import { matchContentRoute } from "./contentPages.tsx";
 import { matchLangRoute } from "./routes.ts";
 import { HOME_META, metaTagsHtml, translateMeta } from "./seo.ts";
 
@@ -23,6 +24,13 @@ export function renderRoute(pathname: string): Rendered {
         <TranslatePage source={langRoute.source} target={langRoute.target} />,
       ),
       headTags: metaTagsHtml(translateMeta(langRoute.source, langRoute.target)),
+    };
+  }
+  const contentRoute = matchContentRoute(pathname);
+  if (contentRoute) {
+    return {
+      appHtml: renderToStaticMarkup(<contentRoute.Component />),
+      headTags: metaTagsHtml(contentRoute.meta),
     };
   }
   // Home ("/") and any other prerendered path fall back to the landing page.

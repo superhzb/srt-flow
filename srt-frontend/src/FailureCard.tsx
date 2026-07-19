@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { errMessage, type JobErrorKind } from "./api.ts";
 import { errorCopy } from "./errorCopy.ts";
+import { SUPPORT_EMAIL } from "./legal.ts";
 import { Button } from "./ui.tsx";
 
 export function FailureCard({
@@ -69,6 +70,16 @@ export function FailureCard({
         </div>
       )}
       {retryError && <p className="mt-2 text-sm">{retryError}</p>}
+      <p className="mt-3 text-sm text-red-800">
+        Still stuck? Email{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}`}
+          className="font-medium underline underline-offset-2"
+        >
+          {SUPPORT_EMAIL}
+        </a>
+        .
+      </p>
       {hasTechnical && (
         <details className="mt-3 text-xs">
           <summary className="cursor-pointer text-red-700">

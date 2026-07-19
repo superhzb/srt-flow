@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { DEMO_LINE, type LangCode } from "./demoLine.ts";
 import { langMeta } from "./languages.ts";
 import { LanguagePill } from "./components.tsx";
+import { LegalLinks } from "./LegalLinks.tsx";
 import { LANG_ROUTES } from "./routes.ts";
 import { SITE_URL, translateMeta, setMeta } from "./seo.ts";
 import { FlowLogo } from "./ui.tsx";
@@ -167,16 +168,19 @@ export function TranslatePage({
       </main>
 
       <footer className="mt-8 bg-[#14181F] px-5 py-16 text-white">
-        <div className="mx-auto flex max-w-4xl flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
-          <h2 className="max-w-2xl text-2xl font-semibold tracking-tight">
-            Turn one {from} subtitle into every language.
-          </h2>
-          <a
-            href="/app"
-            className="whitespace-nowrap text-lg font-semibold text-cyan-400 underline-offset-4 transition hover:text-cyan-300 hover:underline"
-          >
-            Start free →
-          </a>
+        <div className="mx-auto flex max-w-4xl flex-col gap-10">
+          <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
+            <h2 className="max-w-2xl text-2xl font-semibold tracking-tight">
+              Turn one {from} subtitle into every language.
+            </h2>
+            <a
+              href="/app"
+              className="whitespace-nowrap text-lg font-semibold text-cyan-400 underline-offset-4 transition hover:text-cyan-300 hover:underline"
+            >
+              Start free →
+            </a>
+          </div>
+          <LegalLinks className="border-t border-white/10 pt-8" />
         </div>
       </footer>
     </div>

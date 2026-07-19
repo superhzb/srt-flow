@@ -29,6 +29,38 @@ export const HOME_META: PageMeta = {
   canonical: `${SITE_URL}/`,
 };
 
+export const PRIVACY_META: PageMeta = {
+  title: "Privacy Policy | srt-flow",
+  description:
+    "How srt-flow collects, uses, and protects your data — sub-processors, " +
+    "cross-border processing, retention, and your privacy rights.",
+  canonical: `${SITE_URL}/privacy/`,
+};
+
+export const TERMS_META: PageMeta = {
+  title: "Terms of Service | srt-flow",
+  description:
+    "The terms governing use of srt-flow — accounts, acceptable use, credits, " +
+    "refunds, disclaimers, and liability.",
+  canonical: `${SITE_URL}/terms/`,
+};
+
+export const CONTACT_META: PageMeta = {
+  title: "Contact | srt-flow",
+  description:
+    "Get in touch with srt-flow support for help, billing, refunds, or " +
+    "privacy requests.",
+  canonical: `${SITE_URL}/contact/`,
+};
+
+export const ABOUT_META: PageMeta = {
+  title: "About | srt-flow",
+  description:
+    "srt-flow translates .srt subtitle files into bilingual output so you can " +
+    "learn a language from the videos you already love.",
+  canonical: `${SITE_URL}/about/`,
+};
+
 export function translateMeta(source: LangCode, target: LangCode): PageMeta {
   const from = langMeta(source).en;
   const to = langMeta(target).en;
