@@ -7,7 +7,7 @@ import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pkg_job_orch.api import Job, User, get_engine, reset_engine
+from pkg_job_orch.api import Event, Job, User, get_engine, reset_engine
 from sqlmodel import Session
 
 
@@ -60,9 +60,26 @@ def _add_admin_data(database_url: str) -> tuple[str, str]:
         progress_by_target="TOP SECRET PROGRESS BODY",
         dropped_by_target="TOP SECRET DROPPED BODY",
     )
+    now = datetime.now(UTC)
+    specs = [
+        ("screen_viewed", {"anon_id": "anon-1"}),
+        ("screen_viewed", {"anon_id": "anon-2"}),
+        ("demo_started", {"anon_id": "anon-1"}),
+        ("cta_clicked", {"anon_id": "anon-1"}),
+        ("user_signed_up", {"user_id": user.id}),
+        ("purchase_completed", {"user_id": user.id}),
+        ("job_created", {"user_id": user.id}),
+        ("job_completed", {"user_id": user.id}),
+    ]
+    events = [
+        Event(id=f"admin-event-{i}", event_type=et, created_at=now, **kw)
+        for i, (et, kw) in enumerate(specs)
+    ]
     with Session(get_engine(database_url)) as session:
         session.add(user)
         session.add(job)
+        for event in events:
+            session.add(event)
         session.commit()
     return "admin-user-id", "admin-job-id"
 
@@ -144,6 +161,19 @@ def test_admin_access_matrix_and_read_only_views(
         assert "class='page-wrapper'" in analytics.text
         assert "class='table table-vcenter card-table'" in analytics.text
         assert "Sign-up" in analytics.text and "Job funnel" in analytics.text
+        assert "Acquisition funnel" in analytics.text
+        assert "Demo started" in analytics.text and "CTA clicked" in analytics.text
+        # Redesigned UI: KPI hero cards, funnel drop-off bars, sparklines.
+        assert "class='subheader'>Visitors" in analytics.text
+        assert "conversion rate" in analytics.text
+        assert "progress-bar" in analytics.text
+        assert "<polyline" in analytics.text
+        assert "class='analytics-title'>Analytics" in analytics.text
+        assert "class='analytics-kicker'>Product metrics" in analytics.text
+        assert "class='container-fluid analytics-shell'" in analytics.text
+        assert analytics.text.index("Analytics</h1>") < analytics.text.index("Product metrics")
+        assert "aria-label='Back to admin dashboard'" in analytics.text
+        assert "<div class='page-body'><div class='container-fluid'>" not in analytics.text
 
     paths = {getattr(route, "path", "") for route in app.routes}
     assert not any(path.startswith("/api/db") for path in paths)
