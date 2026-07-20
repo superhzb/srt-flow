@@ -10,7 +10,7 @@ from pkg_auth.api import (
     load_settings,
     resolve_user,
 )
-from pkg_job_orch.api import Event, Job, User, get_engine
+from pkg_job_orch.api import Event, Job, User, erase_user, get_engine, session_scope
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import text
@@ -62,11 +62,19 @@ class UserAdmin(ModelView, model=User):
     name_plural = "Users"
     can_create = False
     can_edit = False
-    can_delete = False
+    can_delete = True
     can_export = False
     can_import = False
-    column_list = ["id", "email", "tier", "google_sub", "created_at"]
-    column_details_list = ["id", "email", "tier", "google_sub", "created_at"]
+    column_list = ["id", "email", "purchased_minutes", "google_sub", "created_at"]
+    column_details_list = ["id", "email", "purchased_minutes", "google_sub", "created_at"]
+
+    async def delete_model(self, request: Request, pk: str) -> None:
+        """Hard-delete via the full erasure path: jobs + on-disk files removed,
+        analytics events anonymized, financial ledger retained. `pk` is user.id.
+        """
+        ctx = request.app.state.job_ctx
+        with session_scope() as session:
+            erase_user(session, ctx.storage, pk)
 
 
 class JobAdmin(ModelView, model=Job):
