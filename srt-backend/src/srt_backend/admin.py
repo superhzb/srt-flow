@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from pkg_auth.api import (
     AuthSettings,
@@ -10,6 +12,7 @@ from pkg_auth.api import (
     load_settings,
     resolve_user,
 )
+from pkg_file_upload.api import LocalStorage
 from pkg_job_orch.api import Event, Job, User, erase_user, get_engine, session_scope
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
@@ -71,10 +74,13 @@ class UserAdmin(ModelView, model=User):
     async def delete_model(self, request: Request, pk: str) -> None:
         """Hard-delete via the full erasure path: jobs + on-disk files removed,
         analytics events anonymized, financial ledger retained. `pk` is user.id.
+
+        SQLAdmin runs as a mounted sub-app, so ``request.app`` is that sub-app
+        (no ``job_ctx`` on its state). Build storage directly instead.
         """
-        ctx = request.app.state.job_ctx
+        storage = LocalStorage(os.environ.get("STORAGE_ROOT", "./.data/dev/storage"))
         with session_scope() as session:
-            erase_user(session, ctx.storage, pk)
+            erase_user(session, storage, pk)
 
 
 class JobAdmin(ModelView, model=Job):
