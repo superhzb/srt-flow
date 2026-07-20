@@ -12,10 +12,13 @@
 //   - Purchase -> explicit conversion event; needs PURCHASE_SEND_TO filled in
 //                 after the "Purchase" conversion action is created in Ads.
 
-const AW_TAG_ID = "AW-18335528009";
+const AW_TAG_ID = "AW-1492365021";
 
 // Purchase conversion action (Google Ads event snippet send_to). Empty disables.
-const PURCHASE_SEND_TO = "AW-18335528009/ruOhCLyYg9McEMnoh6dE";
+const PURCHASE_SEND_TO = "AW-1492365021/ruOhCLyYg9McEMnoh6dE";
+
+// Sign-up conversion action (Google Ads event snippet send_to). Empty disables.
+const SIGNUP_SEND_TO = "AW-1492365021/BomlCLGPmNMcEMnoh6dE";
 
 export const CONSENT_KEY = "ads_consent"; // "granted" | "denied"
 const SIGNUP_FIRED_KEY = "ads_signup_fired"; // JSON array of user ids
@@ -109,10 +112,10 @@ export function adsPageview(pagePath?: string): void {
 }
 
 // Fire the sign-up conversion exactly once for a freshly created account.
-// Matches the URL-based "visit to /app" conversion configured in Google Ads,
-// but gated so repeat logins by existing users don't count.
+// Fires the explicit Google Ads "Sign up" conversion event, gated so repeat
+// logins by existing users don't count.
 export function trackSignup(me: { id: string; created_at: string }): void {
-  if (getStoredConsent() !== "granted") return;
+  if (getStoredConsent() !== "granted" || !SIGNUP_SEND_TO) return;
   const created = Date.parse(me.created_at);
   if (Number.isNaN(created) || Date.now() - created > SIGNUP_FRESH_MS) return;
 
@@ -124,7 +127,8 @@ export function trackSignup(me: { id: string; created_at: string }): void {
   }
   if (fired.includes(me.id)) return;
 
-  adsPageview("/app");
+  loadGtag();
+  gtag("event", "conversion", { send_to: SIGNUP_SEND_TO });
 
   try {
     fired.push(me.id);
