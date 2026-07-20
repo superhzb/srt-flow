@@ -62,18 +62,24 @@ def _add_admin_data(database_url: str) -> tuple[str, str]:
     )
     now = datetime.now(UTC)
     specs = [
-        ("screen_viewed", {"anon_id": "anon-1"}),
-        ("screen_viewed", {"anon_id": "anon-2"}),
-        ("demo_started", {"anon_id": "anon-1"}),
-        ("cta_clicked", {"anon_id": "anon-1"}),
-        ("user_signed_up", {"user_id": user.id}),
-        ("purchase_completed", {"user_id": user.id}),
-        ("job_created", {"user_id": user.id}),
-        ("job_completed", {"user_id": user.id}),
+        ("screen_viewed", "anon-1", None),
+        ("screen_viewed", "anon-2", None),
+        ("demo_started", "anon-1", None),
+        ("cta_clicked", "anon-1", None),
+        ("user_signed_up", None, user.id),
+        ("purchase_completed", None, user.id),
+        ("job_created", None, user.id),
+        ("job_completed", None, user.id),
     ]
     events = [
-        Event(id=f"admin-event-{i}", event_type=et, created_at=now, **kw)
-        for i, (et, kw) in enumerate(specs)
+        Event(
+            id=f"admin-event-{i}",
+            event_type=event_type,
+            created_at=now,
+            anon_id=anon_id,
+            user_id=event_user_id,
+        )
+        for i, (event_type, anon_id, event_user_id) in enumerate(specs)
     ]
     with Session(get_engine(database_url)) as session:
         session.add(user)
@@ -84,7 +90,7 @@ def _add_admin_data(database_url: str) -> tuple[str, str]:
     return "admin-user-id", "admin-job-id"
 
 
-def test_admin_access_matrix_and_read_only_views(
+def test_admin_access_matrix_and_restricted_views(
     monkeypatch: pytest.MonkeyPatch,
     temp_env: dict[str, str],
     tmp_path: Path,
@@ -144,7 +150,6 @@ def test_admin_access_matrix_and_read_only_views(
 
         assert client.get("/admin/user/create").status_code == 403
         assert client.get(f"/admin/user/edit/{user_id}").status_code == 403
-        assert client.delete(f"/admin/user/delete?pks={user_id}").status_code == 403
         assert client.get("/admin/user/export/csv").status_code == 403
         assert client.post("/admin/user/import").status_code == 403
 
@@ -174,6 +179,8 @@ def test_admin_access_matrix_and_read_only_views(
         assert analytics.text.index("Analytics</h1>") < analytics.text.index("Product metrics")
         assert "aria-label='Back to admin dashboard'" in analytics.text
         assert "<div class='page-body'><div class='container-fluid'>" not in analytics.text
+
+        assert client.delete(f"/admin/user/delete?pks={user_id}").status_code == 200
 
     paths = {getattr(route, "path", "") for route in app.routes}
     assert not any(path.startswith("/api/db") for path in paths)

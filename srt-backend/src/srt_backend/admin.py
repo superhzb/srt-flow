@@ -173,7 +173,7 @@ def _card(title: str, inner: str, *, span: str = "col-12", subtitle: str = "") -
 
 def _render_kpis(cards: list[tuple[str, object, str, str]]) -> str:
     """Hero stat row. Each card: (label, value, color_class, sublabel)."""
-    cols = []
+    cols: list[str] = []
     for label, value, color, sub in cards:
         cols.append(
             "<div class='col-sm-6 col-lg-3'>"
@@ -196,7 +196,7 @@ def _render_funnel(
     """Stacked drop-off bars. Bar width = % of first stage; delta = step-to-step."""
     top = stages[0][1] if stages else 0
     prev: int | None = None
-    rows = []
+    rows: list[str] = []
     for i, (label, count) in enumerate(stages):
         color = colors[i % len(colors)]
         width = (count / top * 100) if top else 0
@@ -280,8 +280,8 @@ class AnalyticsView(BaseView):
     async def analytics(self, request: Request) -> Response:
         with get_engine().connect() as conn:
 
-            def q(sql: str) -> list[tuple[object, ...]]:
-                return [tuple(row) for row in conn.execute(text(sql)).all()]
+            def q(sql: str) -> list[tuple[object, int]]:
+                return [(row[0], int(row[1])) for row in conn.execute(text(sql)).all()]
 
             by_type = q(
                 "SELECT event_type, COUNT(*) FROM event GROUP BY event_type ORDER BY COUNT(*) DESC"
