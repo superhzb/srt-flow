@@ -52,6 +52,14 @@ class AuthSettings(BaseSettings):
         default_factory=frozenset,
         alias="ADMIN_EMAILS",
     )
+    allowed_subs: Annotated[frozenset[str], NoDecode] = Field(
+        default_factory=frozenset,
+        alias="ALLOWED_SUBS",
+    )
+    allowed_emails: Annotated[frozenset[str], NoDecode] = Field(
+        default_factory=frozenset,
+        alias="ALLOWED_EMAILS",
+    )
     admin_session_secret: SecretStr | None = Field(
         default=None,
         alias="ADMIN_SESSION_SECRET",
@@ -77,7 +85,9 @@ class AuthSettings(BaseSettings):
             raise ValueError(msg)
         return value
 
-    @field_validator("admin_subs", "admin_emails", mode="before")
+    @field_validator(
+        "admin_subs", "admin_emails", "allowed_subs", "allowed_emails", mode="before"
+    )
     @classmethod
     def _parse_admin_allowlist(cls, value: object) -> frozenset[str]:
         if value is None:
@@ -130,8 +140,8 @@ class AuthSettings(BaseSettings):
         if self.env != "dev" and self.admin_session_secret is None:
             msg = "Missing required auth config: ADMIN_SESSION_SECRET"
             raise AuthConfigError(msg)
-        if self.env in {"staging", "prod"} and not self.admin_subs:
-            msg = "Missing required auth config: ADMIN_SUBS"
+        if self.env in {"staging", "prod"} and not self.admin_subs and not self.admin_emails:
+            msg = "Missing required auth config: ADMIN_SUBS or ADMIN_EMAILS"
             raise AuthConfigError(msg)
         if self.auth_mode == "google":
             missing = [

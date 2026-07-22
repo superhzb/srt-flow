@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import RedirectResponse
 
 from pkg_auth.config import AuthSettings, load_settings
+from pkg_auth.dependencies import _identity_allowed
 from pkg_auth.models import UserStore
 from pkg_auth.state import get_user_store
 from pkg_auth.tokens import mint_session_token
@@ -74,6 +75,14 @@ async def callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid id_token claims",
         )
+
+    if not _identity_allowed(subject, email, settings):
+        # Environment is access-restricted (e.g. staging invite list) and this
+        # identity is not on it. Don't create a user row or issue a session;
+        # bounce back to the app with an error the SPA can surface.
+        response = RedirectResponse(f"{settings.app_redirect_path}?error=access_denied")
+        response.delete_cookie(settings.csrf_cookie_name)
+        return response
 
     user = await user_store.upsert(google_sub=subject, email=email, tier="free")
     session = mint_session_token(user, settings)

@@ -47,15 +47,50 @@ async def resolve_user(
     except HTTPException:
         return None
     user = await user_store.get_by_sub(google_sub)
+    if user is not None and not is_allowed(user, settings):
+        # Not on the access allowlist for this environment (e.g. staging is
+        # restricted to invited testers). Treat as unauthenticated so every
+        # gated route — including billing checkout — returns 401.
+        return None
     return user
 
 
 def is_admin(user: User, settings: AuthSettings) -> bool:
-    """Return whether a user is allowlisted for the current environment."""
+    """Return whether a user is an admin.
+
+    Admins are matched by Google subject id (``ADMIN_SUBS``) or by
+    Google-verified email (``ADMIN_EMAILS``). Emails are honoured in every
+    environment because the OAuth callback only issues a session once Google
+    has asserted ``email_verified``.
+    """
     google_sub = (user.google_sub or "").strip().casefold()
     if google_sub in settings.admin_subs:
         return True
-    return settings.env == "dev" and user.email.strip().casefold() in settings.admin_emails
+    return user.email.strip().casefold() in settings.admin_emails
+
+
+def _identity_allowed(google_sub: str | None, email: str, settings: AuthSettings) -> bool:
+    """Return whether a Google identity may access this environment.
+
+    Empty allowlists mean "open" so production (a public product) is
+    unaffected. Dev is always open. Admins always pass. Otherwise the
+    subject id or verified email must appear on ``ALLOWED_SUBS`` /
+    ``ALLOWED_EMAILS``.
+    """
+    if settings.env == "dev":
+        return True
+    if not settings.allowed_subs and not settings.allowed_emails:
+        return True
+    sub = (google_sub or "").strip().casefold()
+    mail = email.strip().casefold()
+    if sub in settings.admin_subs or mail in settings.admin_emails:
+        return True
+    return sub in settings.allowed_subs or mail in settings.allowed_emails
+
+
+def is_allowed(user: User, settings: AuthSettings) -> bool:
+    """Return whether an existing user may access this environment."""
+    return _identity_allowed(user.google_sub, user.email, settings)
 
 
 async def require_admin(
