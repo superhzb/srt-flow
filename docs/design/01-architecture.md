@@ -317,21 +317,15 @@ model both require it.
   run), `backend` (uv sync + pyright + pytest, with `ENV=dev AUTH_MODE=dev` and
   **no** LLM creds, so tests use a fake `LLMBackend` and never hit a live
   endpoint), standalone `pkg-translator` and `pkg-llm-backend` jobs, and
-  `frontend` (format/lint/typecheck/test/build). Green CI on `staging` /`main`
-  gates the deploy jobs.
-- **Deploy** (`scripts/deploy.sh <staging|production> <sha>`, run on a
-  self-hosted macOS runner labeled `srt-flow-deploy`): both environments live
-  on one Mac as separate git clones on their branch. The script takes a lock,
-  verifies `origin/<branch>` still matches the tested SHA (skips stale), asserts
-  a clean fast-forward, records the pre-deploy Alembic revision, then
-  fast-forwards the clone, `uv sync --frozen` + `npm ci && npm run build`, and
-  drives **brbot-router** (`/api/projects/<project>/{stop,start}`) to restart
-  the app. Migrations apply at app startup via the lifespan. Health is verified
-  against `GET /api/health` (must report `status:ok` and matching `commit`) and
-  `GET /api/workers` (all healthy). On failure it rolls back — but **never
-  auto-downgrades the database**: if the DB revision advanced it rolls *forward*
-  (retains the migration-aware code), otherwise it restores the previous SHA.
-  Every attempt is appended to a `deployments.jsonl` audit log.
+  `frontend` (format/lint/typecheck/test/build). CI is test-only; it does not
+  deploy.
+- **Deploy** (manual): both environments live on one Mac as separate git clones
+  on their branch (`srt-flow-prod` → `main`, `srt-flow-staging` → `staging`).
+  To ship a revision, `git pull --ff-only` the clone and restart the matching
+  **brbot-router** project (`srt-flow` / `srt-flow-stg`) via the dashboard or
+  `POST /api/projects/<project>/{stop,start}`. Start runs `make build &&
+  make serve`, so the restart rebuilds the frontend and serves the new commit;
+  Alembic migrations apply at app startup via the lifespan. See `ops/README.md`.
 - **Router / tunnel** (`ops/`): brbot-router runs as a launchd agent
   (`ops/launchd/…plist`) and fronts the app via Cloudflare
   (`staging.srt-flow.com`, `app.srt-flow.com`); projects share an `mlx`

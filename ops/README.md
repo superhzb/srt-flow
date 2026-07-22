@@ -1,35 +1,34 @@
 # Deployment Mac setup
 
-## GitHub Actions runner
+There is no automated deployment. GitHub Actions still runs CI
+(lint/typecheck/test/build) on every push and pull request, but shipping a new
+revision to the public sites is manual.
 
-Create a repository-level self-hosted runner in GitHub, install it under a
-dedicated macOS user, and add the custom label `srt-flow-deploy`. During runner
-configuration, keep the default `self-hosted` and `macOS` labels. Install and
-start its generated launchd service:
+## Updating a running site
 
-```bash
-./config.sh --url https://github.com/superhzb/srt-flow --token <short-lived-token> --labels srt-flow-deploy --unattended
-./svc.sh install
-./svc.sh start
-```
+srt-flow runs as two brbot-router projects — `srt-flow` (production, `main`) and
+`srt-flow-stg` (staging, `staging`) — each backed by a dedicated clone under
+`~/Documents/GitHub/srt-flow`. To ship a new commit:
 
-The workflow grants only `contents: read`. Do not store the router passcode in
-GitHub: the deployment script reads it from the deployment user's local config.
+1. Pull it into the deployment clone:
+   - production: `git -C ~/Documents/GitHub/srt-flow/srt-flow-prod/srt-flow pull --ff-only`
+   - staging: `git -C ~/Documents/GitHub/srt-flow/srt-flow-staging/srt-flow pull --ff-only`
+2. Restart the project in brbot-router so it rebuilds and re-serves the fresh
+   commit. Use the dashboard, or the API (`start` runs `make build && make serve`,
+   so a stop + start picks up the new code and reserves the MLX resource group):
 
-## Deployment configuration
+   ```bash
+   host=<dashboard-host>; pass=<passcode>; proj=srt-flow   # or srt-flow-stg
+   curl -X POST -H "Host: $host" -H "Authorization: Bearer $pass" \
+     http://127.0.0.1:9000/api/projects/$proj/stop
+   curl -X POST -H "Host: $host" -H "Authorization: Bearer $pass" \
+     http://127.0.0.1:9000/api/projects/$proj/start
+   ```
 
-The existing brbot-router `.env` is used automatically when it lives at
-`~/Documents/GitHub/brbot-router/.env`. Otherwise copy `deploy.env.example` to
-`~/.config/srt-flow/deploy.env`, fill in the local values, and run
-`chmod 600 ~/.config/srt-flow/deploy.env`.
-
-Both deployment clones must be clean and checked out on their assigned branch.
-Each deployment runs `npm ci` followed by `npm run build`; FastAPI serves the
-resulting `srt-frontend/dist` directory instead of exposing the Vite dev server.
-Vite's hashed assets are cached immutably while the HTML shell is revalidated.
-Configure each router project to run `make serve` and route its public domain to
-the project's `BACKEND_PORT`; `make dev` and `FRONTEND_PORT` are local-only.
-The prototype currently uses `ENV=dev` and `AUTH_MODE=dev` in each clone's
+Each clone must stay clean and checked out on its assigned branch. FastAPI
+serves the prebuilt `srt-frontend/dist` (via `make serve`), not the Vite dev
+server; Vite's hashed assets are cached immutably while the HTML shell is
+revalidated. The prototype uses `ENV=dev` and `AUTH_MODE=dev` in each clone's
 ignored `srt-backend/.env`. Before treating either public site as production,
 switch to Google authentication and the corresponding `ENV` value.
 
@@ -47,5 +46,5 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.brettbot.brbot-rou
 launchctl enable "gui/$(id -u)/com.brettbot.brbot-router"
 ```
 
-The router's `.env`, `projects.json`, Cloudflare credentials, and deployment
-logs remain outside this repository.
+The router's `.env`, `projects.json`, and Cloudflare credentials remain outside
+this repository.
